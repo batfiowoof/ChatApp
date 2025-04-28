@@ -1,0 +1,75 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>ChatApp Test Client</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
+  </head>
+  <body>
+    <h1>ChatApp Test Client</h1>
+
+    <input
+      type="text"
+      id="tokenInput"
+      placeholder="Paste your JWT token here"
+      size="80"
+    /><br /><br />
+    <input
+      type="text"
+      id="receiverInput"
+      placeholder="Receiver User ID (for private message)"
+      size="50"
+    /><br /><br />
+    <input
+      type="text"
+      id="messageInput"
+      placeholder="Type your message"
+      size="50"
+    /><br /><br />
+
+    <button onclick="connect()">Connect</button>
+    <button onclick="sendPublic()">Send Public Message</button>
+    <button onclick="sendPrivate()">Send Private Message</button>
+
+    <script>
+      let connection = null;
+
+      function connect() {
+        const token = document.getElementById("tokenInput").value;
+
+        connection = new signalR.HubConnectionBuilder()
+          .withUrl("http://localhost:5225/hubs/chat", {
+            accessTokenFactory: () => token,
+          })
+          .configureLogging(signalR.LogLevel.Information)
+          .build();
+
+        connection.on("ReceiveMessage", (user, message) => {
+          console.log(`[Public] ${user}: ${message}`);
+        });
+
+        connection.on("ReceivePrivateMessage", (user, message) => {
+          console.log(`[Private] ${user}: ${message}`);
+        });
+
+        connection
+          .start()
+          .then(() => {
+            console.log("Connected!");
+          })
+          .catch((err) => console.error(err));
+      }
+
+      function sendPublic() {
+        const message = document.getElementById("messageInput").value;
+        connection.invoke("SendPublicMessage", message);
+      }
+
+      function sendPrivate() {
+        const receiverId = document.getElementById("receiverInput").value;
+        const message = document.getElementById("messageInput").value;
+        connection.invoke("SendPrivateMessage", receiverId, message);
+      }
+    </script>
+  </body>
+</html>
