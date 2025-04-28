@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.1" />
     <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.4" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.4">
       <PrivateAssets>all</PrivateAssets>
@@ -14,14 +15,13 @@
     </PackageReference>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.9.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="API\DTO\" />
     <Folder Include="API\Config\" />
     <Folder Include="API\Repositories\" />
     <Folder Include="API\Services\" />
-    <Folder Include="Infrastructure\Auth\" />
     <Folder Include="Infrastructure\Messaging\" />
     <Folder Include="Shared\Constants\" />
     <Folder Include="Shared\Enums\" />
