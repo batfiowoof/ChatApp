@@ -1,75 +1,84 @@
 ﻿<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <title>ChatApp Test Client</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
-  </head>
-  <body>
-    <h1>ChatApp Test Client</h1>
+<head>
+  <meta charset="UTF-8">
+  <title>Chat Client</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
+</head>
+<body>
+<h1>Chat Client</h1>
 
-    <input
-      type="text"
-      id="tokenInput"
-      placeholder="Paste your JWT token here"
-      size="80"
-    /><br /><br />
-    <input
-      type="text"
-      id="receiverInput"
-      placeholder="Receiver User ID (for private message)"
-      size="50"
-    /><br /><br />
-    <input
-      type="text"
-      id="messageInput"
-      placeholder="Type your message"
-      size="50"
-    /><br /><br />
+<label>JWT Token:</label><br/>
+<input type="text" id="tokenInput" style="width: 400px;"><br/><br/>
 
-    <button onclick="connect()">Connect</button>
-    <button onclick="sendPublic()">Send Public Message</button>
-    <button onclick="sendPrivate()">Send Private Message</button>
+<button onclick="connect()">Connect</button><br/><br/>
 
-    <script>
-      let connection = null;
+<hr/>
 
-      function connect() {
-        const token = document.getElementById("tokenInput").value;
+<h2>Public Chat</h2>
+<input type="text" id="publicMessageInput" placeholder="Enter public message...">
+<button onclick="sendPublic()">Send Public Message</button>
 
-        connection = new signalR.HubConnectionBuilder()
-          .withUrl("http://localhost:5225/hubs/chat", {
-            accessTokenFactory: () => token,
-          })
-          .configureLogging(signalR.LogLevel.Information)
-          .build();
+<hr/>
 
-        connection.on("ReceiveMessage", (user, message) => {
-          console.log(`[Public] ${user}: ${message}`);
-        });
+<h2>Private Chat</h2>
+<label>Select User:</label><br/>
+<select id="userDropdown"></select><br/><br/>
 
-        connection.on("ReceivePrivateMessage", (user, message) => {
-          console.log(`[Private] ${user}: ${message}`);
-        });
+<input type="text" id="privateMessageInput" placeholder="Enter private message...">
+<button onclick="sendPrivate()">Send Private Message</button>
 
-        connection
-          .start()
-          .then(() => {
-            console.log("Connected!");
-          })
-          .catch((err) => console.error(err));
-      }
+<script>
+  let connection;
 
-      function sendPublic() {
-        const message = document.getElementById("messageInput").value;
-        connection.invoke("SendPublicMessage", message);
-      }
+  async function connect() {
+    const token = document.getElementById("tokenInput").value;
 
-      function sendPrivate() {
-        const receiverId = document.getElementById("receiverInput").value;
-        const message = document.getElementById("messageInput").value;
-        connection.invoke("SendPrivateMessage", receiverId, message);
-      }
-    </script>
-  </body>
+    connection = new signalR.HubConnectionBuilder()
+            .withUrl("https://localhost:7060/hubs/chat", {
+              accessTokenFactory: () => token
+            })
+            .configureLogging(signalR.LogLevel.Information)
+            .build();
+
+    connection.on("ReceiveMessage", (username, message) => {
+      console.log(`[Public] ${username}: ${message}`);
+    });
+
+    connection.on("ReceivePrivateMessage", (username, message) => {
+      console.log(`[Private] ${username}: ${message}`);
+    });
+
+    connection.on("UpdateUserList", (users) => {
+      const dropdown = document.getElementById("userDropdown");
+      dropdown.innerHTML = '';
+
+      users.forEach(user => {
+        const option = document.createElement("option");
+        option.value = user.userId;
+        option.text = user.username;
+        dropdown.appendChild(option);
+      });
+    });
+
+    try {
+      await connection.start();
+      console.log("Connected to SignalR hub!");
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function sendPublic() {
+    const message = document.getElementById("publicMessageInput").value;
+    connection.invoke("SendPublicMessage", message).catch(err => console.error(err));
+  }
+
+  function sendPrivate() {
+    const receiverId = document.getElementById("userDropdown").value;
+    const message = document.getElementById("privateMessageInput").value;
+    connection.invoke("SendPrivateMessage", receiverId, message).catch(err => console.error(err));
+  }
+</script>
+</body>
 </html>
