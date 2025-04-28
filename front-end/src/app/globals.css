@@ -1,0 +1,48 @@
+@import "tailwindcss";
+@config "../../tailwind.config.js";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --primary: #7c3aed;
+  --primary-light: #a78bfa;
+  --primary-dark: #5b21b6;
+  --secondary: #9333ea;
+  --secondary-light: #c084fc;
+  --secondary-dark: #6b21a8;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+    --primary: #8b5cf6;
+    --primary-light: #c4b5fd;
+    --primary-dark: #6d28d9;
+    --secondary: #a855f7;
+    --secondary-light: #d8b4fe;
+    --secondary-dark: #7e22ce;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary-600 hover:bg-primary-700 text-white px-4 py-2 rounded-md transition-colors;
+  }
+
+  .btn-secondary {
+    @apply bg-secondary-600 hover:bg-secondary-700 text-white px-4 py-2 rounded-md transition-colors;
+  }
+
+  .input-field {
+    @apply border border-gray-300 dark:border-gray-700 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500;
+  }
+}
