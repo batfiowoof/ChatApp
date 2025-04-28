@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import axios from "axios";
 
 export default function RegisterForm() {
   const [username, setUsername] = useState("");
@@ -29,29 +30,25 @@ export default function RegisterForm() {
     setError("");
 
     try {
-      const response = await fetch("https://localhost:7060/api/auth/register", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ username, password }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Registration failed");
-      }
+      const response = await axios.post(
+        "http://localhost:5225/api/Auth/register",
+        {
+          username,
+          password,
+        }
+      );
 
       // Redirect to login page after successful registration
       router.push("/login?registered=true");
     } catch (err) {
       console.error("Registration error:", err);
-      setError(
-        err instanceof Error
-          ? err.message
-          : "An error occurred during registration"
-      );
+
+      const errorMessage =
+        axios.isAxiosError(err) && err.response?.data?.message
+          ? err.response.data.message
+          : "An error occurred during registration";
+
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

@@ -57,7 +57,7 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowSpecificOrigin", builder =>
     {
         builder
-            .WithOrigins("http://127.0.0.1:5500") // from live server extension in vs code will configure later in dev cycle
+            .WithOrigins("http://localhost:3000") // from live server extension in vs code will configure later in dev cycle
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();

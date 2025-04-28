@@ -142,3 +142,6 @@ C:\Users\bojid\source\repos\ChatApp\ChatApp\bin\Debug\net8.0\Microsoft.IdentityM
 C:\Users\bojid\source\repos\ChatApp\ChatApp\bin\Debug\net8.0\Microsoft.IdentityModel.Tokens.dll
 C:\Users\bojid\source\repos\ChatApp\ChatApp\bin\Debug\net8.0\System.IdentityModel.Tokens.Jwt.dll
 C:\Users\bojid\source\repos\ChatApp\ChatApp\obj\Debug\net8.0\ChatApp.sourcelink.json
+C:\Users\bojid\source\repos\ChatApp\ChatApp\bin\Debug\net8.0\front-end\package-lock.json
+C:\Users\bojid\source\repos\ChatApp\ChatApp\bin\Debug\net8.0\front-end\package.json
+C:\Users\bojid\source\repos\ChatApp\ChatApp\bin\Debug\net8.0\front-end\tsconfig.json

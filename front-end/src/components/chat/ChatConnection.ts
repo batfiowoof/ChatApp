@@ -1,4 +1,5 @@
 import * as signalR from "@microsoft/signalr";
+import Cookies from "js-cookie";
 
 class ChatConnection {
   private connection: signalR.HubConnection | null = null;
@@ -9,18 +10,26 @@ class ChatConnection {
     // We'll initialize the connection only when needed
   }
 
-  public async connect(token: string): Promise<signalR.HubConnection> {
-    if (this.connection && this.token === token) {
+  public async connect(token?: string): Promise<signalR.HubConnection> {
+    // Try to get the token from parameter, cookie, or localStorage in that order
+    const authToken =
+      token || Cookies.get("token") || localStorage.getItem("token");
+
+    if (!authToken) {
+      throw new Error("No authentication token available");
+    }
+
+    if (this.connection && this.token === authToken) {
       return this.connection;
     }
 
     // Store token for reconnection purposes
-    this.token = token;
+    this.token = authToken;
 
     // Create a new connection
     this.connection = new signalR.HubConnectionBuilder()
-      .withUrl("https://localhost:7060/hubs/chat", {
-        accessTokenFactory: () => token,
+      .withUrl("http://localhost:5225/hubs/chat", {
+        accessTokenFactory: () => authToken,
       })
       .withAutomaticReconnect()
       .configureLogging(signalR.LogLevel.Information)

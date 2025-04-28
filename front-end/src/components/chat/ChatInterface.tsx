@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from "react";
 import { chatConnection } from "./ChatConnection";
 import ChatMessage from "./ChatMessage";
 import { HubConnection } from "@microsoft/signalr";
+import Cookies from "js-cookie";
+import { useRouter } from "next/navigation";
 
 interface UserInfo {
   userId: string;
@@ -29,18 +31,22 @@ export default function ChatInterface() {
   const [currentUsername, setCurrentUsername] = useState("");
   const [error, setError] = useState("");
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const router = useRouter();
 
   // Connect to SignalR hub on component mount
   useEffect(() => {
-    const token = localStorage.getItem("token");
+    // Try to get token from cookie first, then localStorage as fallback
+    const token = Cookies.get("token") || localStorage.getItem("token");
+    
     if (!token) {
       setError("Not authenticated. Please log in.");
+      setTimeout(() => router.push("/login"), 2000); // Redirect after a short delay
       return;
     }
 
     const connectToHub = async () => {
       try {
-        const conn = await chatConnection.connect(token);
+        const conn = await chatConnection.connect();
         setConnection(conn);
         setIsConnected(true);
 
@@ -89,6 +95,14 @@ export default function ChatInterface() {
       } catch (err) {
         console.error("Error connecting to chat hub:", err);
         setError("Failed to connect to chat. Please try again later.");
+        
+        // If we get an unauthorized error, redirect to login
+        if (err instanceof Error && err.message.includes("Unauthorized")) {
+          // Clear tokens since they might be invalid
+          Cookies.remove("token");
+          localStorage.removeItem("token");
+          setTimeout(() => router.push("/login"), 2000);
+        }
       }
     };
 
@@ -98,7 +112,7 @@ export default function ChatInterface() {
       // Disconnect when component unmounts
       chatConnection.disconnect();
     };
-  }, []);
+  }, [router]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {

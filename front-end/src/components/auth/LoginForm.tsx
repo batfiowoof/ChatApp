@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import axios from "axios";
+import Cookies from "js-cookie";
 
 export default function LoginForm() {
   const [username, setUsername] = useState("");
@@ -23,30 +25,33 @@ export default function LoginForm() {
     setError("");
 
     try {
-      const response = await fetch("https://localhost:7060/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ username, password }),
+      const response = await axios.post(
+        "http://localhost:5225/api/Auth/login",
+        {
+          username,
+          password,
+        }
+      );
+
+      // Store token in both cookie and localStorage
+      // The cookie will be used for API requests
+      // The httpOnly flag ensures better security but is only set by the server
+      Cookies.set("token", response.data.token, {
+        expires: 7,
+        sameSite: "strict",
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Failed to login");
-      }
-
-      // Store token in localStorage
-      localStorage.setItem("token", data.token);
+      localStorage.setItem("token", response.data.token);
 
       // Redirect to chat
       router.push("/chat");
     } catch (err) {
       console.error("Login error:", err);
-      setError(
-        err instanceof Error ? err.message : "An error occurred during login"
-      );
+      const errorMessage =
+        axios.isAxiosError(err) && err.response?.data?.message
+          ? err.response.data.message
+          : "Failed to login. Please check your credentials.";
+
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
