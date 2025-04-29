@@ -6,7 +6,7 @@ interface UserListProps {
   title?: string;
 }
 
-export default function UserList({ title = "Users Online" }: UserListProps) {
+export default function UserList({ title = "Online Users" }: UserListProps) {
   const {
     users,
     selectedUser,
@@ -34,7 +34,9 @@ export default function UserList({ title = "Users Online" }: UserListProps) {
           </li>
           {/* Filter out the current user and display others with online indicator */}
           {users
-            .filter((user) => user.username !== currentUsername)
+            .filter(
+              (user) => user.username !== currentUsername && user.isOnline
+            )
             .map((user) => (
               <li key={user.userId}>
                 <button
@@ -80,13 +82,31 @@ export default function UserList({ title = "Users Online" }: UserListProps) {
           )}
         </ul>
 
-        {/* Show empty state if no other users */}
-        {users.filter((user) => user.username !== currentUsername).length ===
-          0 && (
-          <div className="text-center text-gray-500 mt-4">
-            No other users online
-          </div>
-        )}
+        {/* Display offline users */}
+        <ul className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+          {users
+            .filter(
+              (user) =>
+                user.username !== currentUsername && user.isOnline === false
+            )
+            .map((user) => (
+              <li key={user.userId} className="px-3 py-2 text-gray-500">
+                <button
+                  onClick={() => setSelectedUser(user.userId)}
+                  className={`w-full text-left px-3 py-2 rounded-md transition-colors flex items-center ${
+                    selectedUser === user.userId
+                      ? "bg-primary-100 dark:bg-primary-900 text-primary-800 dark:text-primary-200"
+                      : "hover:bg-gray-100 dark:hover:bg-gray-700"
+                  }`}
+                >
+                  <span>{user.username}</span>
+                  <span className="ml-4 text-xs bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded">
+                    Offline
+                  </span>
+                </button>
+              </li>
+            ))}
+        </ul>
       </div>
     </div>
   );

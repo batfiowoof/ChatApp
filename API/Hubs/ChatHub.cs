@@ -5,6 +5,7 @@ using ChatApp.Infrastructure.Notification;
 using ChatApp.Shared.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 
 namespace ChatApp.API.Hubs
 {
@@ -36,6 +37,9 @@ namespace ChatApp.API.Hubs
                 _usernamesById[userId] = username;
             }
 
+            // Send missed messages to the user who just connected
+            await SendMissedMessagesToUser(userId);
+            
             await UpdateUserList();
             await base.OnConnectedAsync();
         }
@@ -57,7 +61,23 @@ namespace ChatApp.API.Hubs
         public async Task SendPublicMessage(string message)
         {
             var username = GetUsername();
+            var senderId = GetUserId();
+            
             await Clients.All.SendAsync("ReceiveMessage", username, message);
+            
+            // Save the public message to the database
+            var newMessage = new Message
+            {
+                SenderId = senderId,
+                ReceiverId = Guid.Empty, // Use Guid.Empty to indicate a public message
+                Content = message,
+                SentAt = DateTime.UtcNow
+            };
+
+            _db.Messages.Add(newMessage);
+            await _db.SaveChangesAsync();
+            
+            _logger.LogInformation("Public message saved from user {username}", username);
         }
 
         public async Task SendPrivateMessage(Guid receiverId, string message)
@@ -71,7 +91,7 @@ namespace ChatApp.API.Hubs
             }
             else
             {
-                await Clients.Caller.SendAsync("UserNotConnected", "Recipient is not connected.");
+                await Clients.Caller.SendAsync("UserNotConnected", "Recipient is not connected but will still receive your message.");
             }
 
             // Винаги запазваме съобщението в базата, независимо дали е свързан
@@ -119,13 +139,25 @@ namespace ChatApp.API.Hubs
         
         private async Task UpdateUserList()
         {
-            var users = _usernamesById.Select(pair => new
+            // Get all users from database
+            var allUsers = await _db.Users.Select(u => new 
             {
-                UserId = pair.Key,
-                Username = pair.Value
+                UserId = u.Id,
+                Username = u.Username
+            }).ToListAsync();
+
+            // Create a list of user objects with online status
+            var userList = allUsers.Select(u => new
+            {
+                UserId = u.UserId,
+                Username = u.Username,
+                IsOnline = _userConnections.ContainsKey(u.UserId)
             }).ToList();
 
-            await Clients.All.SendAsync("UpdateUserList", users);
+            _logger.LogInformation("Sending updated user list with {total} users ({online} online)", 
+                userList.Count, userList.Count(u => u.IsOnline));
+
+            await Clients.All.SendAsync("UpdateUserList", userList);
         }
 
         private Guid GetUserId()
@@ -141,6 +173,58 @@ namespace ChatApp.API.Hubs
         private string GetUsername()
         {
             return Context.User?.Identity?.Name ?? "Anonymous";
+        }
+
+        /// <summary>
+        /// Sends missed messages to a user who has just connected
+        /// </summary>
+        private async Task SendMissedMessagesToUser(Guid userId)
+        {
+            try
+            {
+                // Fetch unread notifications for this user
+                var unreadNotifications = await _db.Notifications
+                    .Where(n => n.ReceiverId == userId && !n.IsRead)
+                    .OrderBy(n => n.SentAt)
+                    .ToListAsync();
+                
+                if (unreadNotifications.Any())
+                {
+                    _logger.LogInformation("User {userId} has {count} unread notifications on connect", 
+                        userId, unreadNotifications.Count);
+                    
+                    // Create a summary notification for missed messages
+                    var missedPrivateMessages = unreadNotifications
+                        .Count(n => n.Type == NotificationType.PrivateMessage);
+                    
+                    if (missedPrivateMessages > 0)
+                    {
+                        // Send a special notification about missed messages
+                        var summaryPayload = new 
+                        {
+                            missedMessageCount = missedPrivateMessages,
+                            summaryText = $"You have {missedPrivateMessages} unread message{(missedPrivateMessages > 1 ? "s" : "")} while you were offline"
+                        };
+                        
+                        // Create and send a notification about missed messages
+                        await _notificationService.CreateAsync(
+                            userId,
+                            NotificationType.MissedMessages,
+                            summaryPayload
+                        );
+                        
+                        _logger.LogInformation("Sent missed messages summary to user {userId}", userId);
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("User {userId} has no unread notifications on connect", userId);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error sending missed messages to user {userId}", userId);
+            }
         }
     }
 }

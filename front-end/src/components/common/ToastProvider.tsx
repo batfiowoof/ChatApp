@@ -1,9 +1,11 @@
 import { useEffect } from "react";
 import { Toaster, toast } from "react-hot-toast";
 import useChatStore from "@/store/useChatStore";
+import { useRouter } from "next/navigation";
 
 export default function ToastProvider() {
   const { notifications, markNotificationAsRead } = useChatStore();
+  const router = useRouter();
 
   // Show toast notification when a new notification is received
   useEffect(() => {
@@ -21,7 +23,29 @@ export default function ToastProvider() {
               <p>From: {lastNotification.payload?.senderName || "Someone"}</p>
               <p className="text-xs text-gray-500">Click to mark as read</p>
             </div>,
-            { duration: 5000 }
+            { duration: 2000 }
+          );
+          break;
+
+        case "MissedMessages":
+          toast(
+            <div
+              onClick={() => {
+                markNotificationAsRead(lastNotification.id);
+                router.push("/notifications");
+              }}
+              className="cursor-pointer"
+            >
+              <p className="font-bold">Missed Messages</p>
+              <p>
+                {lastNotification.payload?.summaryText ||
+                  `You have unread messages from while you were offline`}
+              </p>
+              <p className="text-xs text-gray-500">
+                Click to view all notifications
+              </p>
+            </div>,
+            { duration: 8000 }
           );
           break;
 
@@ -77,7 +101,7 @@ export default function ToastProvider() {
           break;
       }
     }
-  }, [notifications, markNotificationAsRead]);
+  }, [notifications, markNotificationAsRead, router]);
 
   return (
     <Toaster

@@ -10,7 +10,7 @@ import MessageInput from "./MessageInput";
 import { useLoading } from "@/components/common/GlobalLoadingProvider";
 
 export default function ChatInterface() {
-  const { connect, isConnected, error, selectedUser, users } = useChatStore();
+  const { connect, error, selectedUser, users } = useChatStore();
   const router = useRouter();
   const { showLoading, hideLoading } = useLoading();
 

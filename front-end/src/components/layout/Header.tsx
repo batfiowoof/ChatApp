@@ -107,6 +107,14 @@ export default function Header() {
               Chat
             </Link>
             <Link
+              href="/notifications"
+              className={`px-3 py-2 rounded-md text-sm font-medium ${isActive(
+                "/notifications"
+              )}`}
+            >
+              Notifications
+            </Link>
+            <Link
               href="/profile"
               className={`px-3 py-2 rounded-md text-sm font-medium ${isActive(
                 "/profile"
@@ -171,6 +179,14 @@ export default function Header() {
                 )}`}
               >
                 Chat
+              </Link>
+              <Link
+                href="/notifications"
+                className={`block px-3 py-2 rounded-md text-base font-medium ${isActive(
+                  "/notifications"
+                )}`}
+              >
+                Notifications
               </Link>
               <Link
                 href="/profile"

@@ -108,6 +108,8 @@ export default function NotificationDropdown() {
         return `${
           notification.payload?.senderName || "Someone"
         } sent you a message`;
+      case "MissedMessages":
+        return notification.payload?.summaryText || "You have unread messages";
       case "GroupMessage":
         return `New message in ${notification.payload?.groupName || "a group"}`;
       case "GroupInvite":

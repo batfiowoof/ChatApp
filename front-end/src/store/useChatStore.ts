@@ -2,10 +2,12 @@
 import { create } from "zustand";
 import * as signalR from "@microsoft/signalr";
 import Cookies from "js-cookie";
+import axios from "axios";
 
 export interface UserInfo {
   userId: string;
   username: string;
+  isOnline: boolean;
 }
 
 export interface Message {
@@ -36,6 +38,7 @@ interface ChatState {
   messages: Message[];
   currentUsername: string;
   selectedUser: string | null;
+  isLoadingHistory: boolean;
 
   // Notification state
   notifications: Notification[];
@@ -52,6 +55,8 @@ interface ChatState {
   sendPublicMessage: (message: string) => Promise<void>;
   sendPrivateMessage: (receiverId: string, message: string) => Promise<void>;
   addMessage: (message: Message) => void;
+  fetchMessageHistory: (userId: string | null) => Promise<void>;
+  fetchPublicMessages: () => Promise<void>;
 
   // User actions
   setUsers: (users: UserInfo[]) => void;
@@ -61,6 +66,7 @@ interface ChatState {
   fetchNotifications: () => Promise<void>;
   markNotificationAsRead: (notificationId: number) => Promise<void>;
   markAllNotificationsAsRead: () => Promise<void>;
+  deleteAllNotifications: () => Promise<void>;
   addUserWithUnreadMessage: (userId: string) => void;
   clearUserUnreadMessages: (userId: string) => void;
 }
@@ -77,6 +83,7 @@ const useChatStore = create<ChatState>((set, get) => ({
   notifications: [],
   unreadNotifications: 0,
   usersWithUnreadMessages: new Set<string>(),
+  isLoadingHistory: false,
 
   // Connection management
   connect: async (token?: string) => {
@@ -247,6 +254,9 @@ const useChatStore = create<ChatState>((set, get) => ({
 
       // Fetch notifications after connecting
       await get().fetchNotifications();
+
+      // Also fetch initial messages (public by default)
+      await get().fetchPublicMessages();
     } catch (err) {
       console.error("Failed to connect to SignalR hub:", err);
       set({
@@ -347,16 +357,141 @@ const useChatStore = create<ChatState>((set, get) => ({
     set((state) => ({ messages: [...state.messages, message] }));
   },
 
+  fetchMessageHistory: async (userId: string | null) => {
+    // Skip if no user is selected (this would be public chat)
+    if (!userId) {
+      // For public chat, we'll fetch public messages instead
+      await get().fetchPublicMessages();
+      return;
+    }
+
+    set({ isLoadingHistory: true });
+
+    try {
+      const token = Cookies.get("token") || localStorage.getItem("token");
+      if (!token) {
+        throw new Error("No authentication token available");
+      }
+
+      const response = await axios.get(
+        `http://localhost:5225/api/Message/history/${userId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (response.status === 200 && response.data) {
+        const historyMessages = response.data.map((msg: any) => ({
+          id: msg.id,
+          content: msg.content,
+          // If it's from current user, use current username, otherwise find the username from users list
+          sender: msg.isFromCurrentUser
+            ? get().currentUsername
+            : get().users.find((u) => u.userId === msg.senderId)?.username ||
+              "Unknown",
+          timestamp: new Date(msg.sentAt),
+          isPrivate: true,
+          receiverId: msg.receiverId,
+        }));
+
+        // Clear existing messages for this conversation and add history messages
+        set((state) => {
+          // Filter out any private messages between these users
+          const otherMessages = state.messages.filter((m) => {
+            if (!m.isPrivate) return true; // Keep public messages
+
+            // Remove messages between this user and the current user
+            const isConversationMessage =
+              m.receiverId === userId ||
+              m.sender ===
+                get().users.find((u) => u.userId === userId)?.username;
+
+            return !isConversationMessage;
+          });
+
+          return {
+            messages: [...otherMessages, ...historyMessages],
+            isLoadingHistory: false,
+          };
+        });
+      }
+    } catch (err) {
+      console.error("Error fetching message history:", err);
+      set({ isLoadingHistory: false, error: "Failed to load message history" });
+
+      // Clear error after 5 seconds
+      setTimeout(() => set({ error: null }), 5000);
+    }
+  },
+
+  fetchPublicMessages: async () => {
+    set({ isLoadingHistory: true });
+
+    try {
+      const token = Cookies.get("token") || localStorage.getItem("token");
+      if (!token) {
+        throw new Error("No authentication token available");
+      }
+
+      // Using the correct API endpoint URL that matches the rest of the application
+      const response = await axios.get(
+        "http://localhost:5225/api/Message/public",
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      console.log("Public messages response:", response.data); // Debug log
+
+      if (response.status === 200 && response.data) {
+        const publicMessages = response.data.map((msg: any) => ({
+          id: msg.id,
+          content: msg.content,
+          sender: msg.senderName,
+          timestamp: new Date(msg.sentAt),
+          isPrivate: false,
+        }));
+
+        // Clear existing public messages and add new ones
+        set((state) => {
+          // Filter out public messages, keep private ones
+          const privateMessages = state.messages.filter((m) => m.isPrivate);
+
+          return {
+            messages: [...privateMessages, ...publicMessages],
+            isLoadingHistory: false,
+          };
+        });
+      } else {
+        set({ isLoadingHistory: false });
+      }
+    } catch (err) {
+      console.error("Error fetching public messages:", err);
+      set({ isLoadingHistory: false, error: "Failed to load public messages" });
+
+      // Clear error after 5 seconds
+      setTimeout(() => set({ error: null }), 5000);
+    }
+  },
+
   // User actions
   setUsers: (users: UserInfo[]) => {
     set({ users });
   },
 
   setSelectedUser: (userId: string | null) => {
+    // Load message history when selecting a user
+    get().fetchMessageHistory(userId);
+
     // Clear unread messages indicator when selecting a user
     if (userId) {
       get().clearUserUnreadMessages(userId);
     }
+
     set({ selectedUser: userId });
   },
 
@@ -390,41 +525,67 @@ const useChatStore = create<ChatState>((set, get) => ({
       const notifications: any[] = await response.json();
       console.log("Fetched notifications:", notifications);
 
-      if (notifications.length === 0) {
+      if (!notifications?.length) {
         console.log("No notifications returned from the API");
+        set({ notifications: [], unreadNotifications: 0 });
         return;
       }
 
+      // Store current notifications to preserve data between fetches
+      const currentNotifications = get().notifications;
+
       const processedNotifications: Notification[] = notifications.map((n) => {
-        // Try to parse the JSON payload if it's a string
-        let payload = n.payloadJson;
+        const existingNotification = currentNotifications.find(
+          (existing) => existing.id === (n.id || n.Id)
+        );
 
-        // Check for camelCase variations due to JSON serialization
-        if (!payload && n.payloadJson === undefined) {
-          payload = n.payloadJson || n.PayloadJson;
-        }
+        // Get payload from response - this contains our main data
+        let payload = n.payload;
 
-        if (typeof payload === "string") {
+        // For older notifications that might have different structures
+        if (!payload && typeof n.payloadJson === "string") {
           try {
-            payload = JSON.parse(payload);
+            payload = JSON.parse(n.payloadJson);
           } catch (e) {
-            console.error("Error parsing notification payload:", e, payload);
+            console.error("Error parsing notification payload:", e);
           }
         }
 
         // Extract type from the payload or the notification type field
-        // Account for different casings (type vs Type)
-        let type = n.type || n.Type;
-        if (payload && payload.type) {
-          type = payload.type;
-          payload = payload.data || payload;
+        const type = n.type || n.Type || "unknown";
+
+        // If this notification exists in our current state, and the payload
+        // from API is missing key properties like senderName, use the existing one
+        if (existingNotification && payload && existingNotification.payload) {
+          // Check if current payload is missing senderName
+          if (!payload.senderName && existingNotification.payload.senderName) {
+            console.log(
+              "Restoring senderName from existing notification",
+              existingNotification.id,
+              existingNotification.payload.senderName
+            );
+
+            payload = {
+              ...payload,
+              senderName: existingNotification.payload.senderName,
+            };
+          }
+
+          // Check for senderId too
+          if (!payload.senderId && existingNotification.payload.senderId) {
+            payload = {
+              ...payload,
+              senderId: existingNotification.payload.senderId,
+            };
+          }
         }
 
+        // Create the notification with the combined payload
         return {
           id: n.id || n.Id,
           type: type,
-          payload: payload,
-          isRead: n.isRead || n.IsRead || false,
+          payload: payload || {},
+          isRead: !!n.isRead,
           sentAt: new Date(n.sentAt || n.SentAt || new Date()),
         };
       });
@@ -498,6 +659,35 @@ const useChatStore = create<ChatState>((set, get) => ({
       }));
     } catch (err) {
       console.error("Error marking all notifications as read:", err);
+    }
+  },
+
+  deleteAllNotifications: async () => {
+    try {
+      const token = Cookies.get("token") || localStorage.getItem("token");
+      if (!token) return;
+
+      const response = await fetch(
+        "http://localhost:5225/api/notification/delete-all",
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok) throw new Error("Failed to delete all notifications");
+
+      // Clear notifications in local state
+      set({
+        notifications: [],
+        unreadNotifications: 0,
+      });
+
+      console.log("All notifications deleted successfully");
+    } catch (err) {
+      console.error("Error deleting all notifications:", err);
     }
   },
 

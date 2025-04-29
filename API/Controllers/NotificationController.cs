@@ -62,10 +62,38 @@ public class NotificationController : ControllerBase
             {
                 try
                 {
-                    // Try to deserialize the PayloadJson into a dynamic object
-                    var payload = string.IsNullOrEmpty(n.PayloadJson) 
-                        ? null 
-                        : JsonSerializer.Deserialize<object>(n.PayloadJson);
+                    // Try to deserialize the PayloadJson into a proper object
+                    object payload = null;
+                    
+                    if (!string.IsNullOrEmpty(n.PayloadJson))
+                    {
+                        // First, try to deserialize as JsonDocument to handle both direct and nested payloads
+                        using (var jsonDoc = JsonSerializer.Deserialize<JsonDocument>(n.PayloadJson))
+                        {
+                            JsonElement root = jsonDoc.RootElement;
+                            
+                            // Check if this is a typed payload with data property (from newer notifications)
+                            if (root.TryGetProperty("data", out var dataElement)) 
+                            {
+                                // This is a nested payload, extract the data
+                                var dataJson = dataElement.GetRawText();
+                                payload = JsonSerializer.Deserialize<Dictionary<string, object>>(dataJson, JsonOptions);
+                            }
+                            else
+                            {
+                                // This is a direct payload from older notifications
+                                payload = JsonSerializer.Deserialize<Dictionary<string, object>>(n.PayloadJson, JsonOptions);
+                            }
+                        }
+
+                        // Log if we found the critical senderName property
+                        if (payload is Dictionary<string, object> dictPayload && 
+                            dictPayload.ContainsKey("senderName"))
+                        {
+                            _logger.LogInformation("Notification {id} has senderName: {name}", 
+                                n.Id, dictPayload["senderName"]);
+                        }
+                    }
                     
                     // Return an anonymous object with all properties including the deserialized payload
                     return new
@@ -80,8 +108,58 @@ public class NotificationController : ControllerBase
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error processing notification JSON for notification {id}", n.Id);
-                    // Return the notification with raw PayloadJson if deserialization fails
+                    _logger.LogError(ex, "Error processing notification JSON for notification {id}: {error}", 
+                        n.Id, ex.Message);
+                    
+                    // Fallback - try to manually extract the senderName if possible
+                    try 
+                    {
+                        if (!string.IsNullOrEmpty(n.PayloadJson))
+                        {
+                            using (var jsonDoc = JsonSerializer.Deserialize<JsonDocument>(n.PayloadJson))
+                            {
+                                var root = jsonDoc.RootElement;
+                                var fallbackPayload = new Dictionary<string, object>();
+                                
+                                // Check for nested payload
+                                JsonElement targetElement = root;
+                                if (root.TryGetProperty("data", out var dataElement))
+                                {
+                                    targetElement = dataElement;
+                                }
+                                
+                                // Extract critical fields
+                                foreach (var prop in targetElement.EnumerateObject())
+                                {
+                                    if (prop.Name.Equals("senderName", StringComparison.OrdinalIgnoreCase) || 
+                                        prop.Name.Equals("senderId", StringComparison.OrdinalIgnoreCase) ||
+                                        prop.Name.Equals("messagePreview", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        fallbackPayload[prop.Name] = prop.Value.ToString();
+                                    }
+                                }
+                                
+                                if (fallbackPayload.Count > 0)
+                                {
+                                    return new
+                                    {
+                                        n.Id,
+                                        n.ReceiverId,
+                                        Type = n.Type.ToString(),
+                                        n.IsRead,
+                                        n.SentAt,
+                                        Payload = fallbackPayload
+                                    };
+                                }
+                            }
+                        }
+                    }
+                    catch (Exception innerEx) 
+                    {
+                        _logger.LogError(innerEx, "Error in fallback JSON processing for notification {id}", n.Id);
+                    }
+                    
+                    // Return the notification with raw PayloadJson if all deserialization fails
                     return new
                     {
                         n.Id,
@@ -192,6 +270,33 @@ public class NotificationController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error marking all notifications as read");
+            return StatusCode(500, "An error occurred while processing your request");
+        }
+    }
+    
+    [HttpDelete("delete-all")]
+    public async Task<IActionResult> DeleteAll()
+    {
+        try
+        {
+            var userId = GetUserId();
+            
+            var notifications = await _db.Notifications
+                .Where(n => n.ReceiverId == userId)
+                .ToListAsync();
+                
+            if (notifications.Any())
+            {
+                _db.Notifications.RemoveRange(notifications);
+                await _db.SaveChangesAsync();
+                _logger.LogInformation("Deleted {count} notifications for user {userId}", notifications.Count, userId);
+            }
+            
+            return Ok();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting all notifications");
             return StatusCode(500, "An error occurred while processing your request");
         }
     }
