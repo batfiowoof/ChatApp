@@ -17,6 +17,14 @@ export interface Message {
   receiverId?: string;
 }
 
+export interface Notification {
+  id: number;
+  type: string;
+  payload: any;
+  isRead: boolean;
+  sentAt: Date;
+}
+
 interface ChatState {
   // Connection state
   connection: signalR.HubConnection | null;
@@ -28,6 +36,11 @@ interface ChatState {
   messages: Message[];
   currentUsername: string;
   selectedUser: string | null;
+
+  // Notification state
+  notifications: Notification[];
+  unreadNotifications: number;
+  usersWithUnreadMessages: Set<string>;
 
   // Actions
   connect: (token?: string) => Promise<void>;
@@ -43,6 +56,13 @@ interface ChatState {
   // User actions
   setUsers: (users: UserInfo[]) => void;
   setSelectedUser: (userId: string | null) => void;
+
+  // Notification actions
+  fetchNotifications: () => Promise<void>;
+  markNotificationAsRead: (notificationId: number) => Promise<void>;
+  markAllNotificationsAsRead: () => Promise<void>;
+  addUserWithUnreadMessage: (userId: string) => void;
+  clearUserUnreadMessages: (userId: string) => void;
 }
 
 const useChatStore = create<ChatState>((set, get) => ({
@@ -54,6 +74,9 @@ const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   currentUsername: "",
   selectedUser: null,
+  notifications: [],
+  unreadNotifications: 0,
+  usersWithUnreadMessages: new Set<string>(),
 
   // Connection management
   connect: async (token?: string) => {
@@ -118,6 +141,10 @@ const useChatStore = create<ChatState>((set, get) => ({
       newConnection.on(
         "ReceivePrivateMessage",
         (username: string, messageContent: string) => {
+          // Find the user ID based on the username
+          const sender = get().users.find((u) => u.username === username);
+          const senderId = sender?.userId;
+
           const newMessage: Message = {
             id: Date.now().toString(),
             content: messageContent,
@@ -126,6 +153,36 @@ const useChatStore = create<ChatState>((set, get) => ({
             isPrivate: true,
           };
           get().addMessage(newMessage);
+
+          // If we're not currently chatting with this user, mark them as having unread messages
+          if (get().selectedUser !== senderId && senderId) {
+            get().addUserWithUnreadMessage(senderId);
+          }
+        }
+      );
+
+      // Updated handler for new notifications
+      newConnection.on(
+        "NewNotification",
+        (id: number, payload: any, sentAt: string) => {
+          console.log("Received notification:", { id, payload, sentAt });
+
+          // Extract notification type and data from the new payload structure
+          const notificationType = payload.type || "unknown";
+          const notificationData = payload.data || payload;
+
+          const newNotification: Notification = {
+            id,
+            type: notificationType,
+            payload: notificationData,
+            isRead: false,
+            sentAt: new Date(sentAt),
+          };
+
+          set((state) => ({
+            notifications: [newNotification, ...state.notifications],
+            unreadNotifications: state.unreadNotifications + 1,
+          }));
         }
       );
 
@@ -187,6 +244,9 @@ const useChatStore = create<ChatState>((set, get) => ({
       }
 
       console.log("Connected to SignalR hub!");
+
+      // Fetch notifications after connecting
+      await get().fetchNotifications();
     } catch (err) {
       console.error("Failed to connect to SignalR hub:", err);
       set({
@@ -215,10 +275,18 @@ const useChatStore = create<ChatState>((set, get) => ({
       }
     }
 
+    // Reset all state to initial values
     set({
       connection: null,
       isConnected: false,
       selectedUser: null,
+      users: [],
+      messages: [],
+      currentUsername: "",
+      notifications: [],
+      unreadNotifications: 0,
+      usersWithUnreadMessages: new Set<string>(),
+      error: null,
     });
   },
 
@@ -285,7 +353,169 @@ const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setSelectedUser: (userId: string | null) => {
+    // Clear unread messages indicator when selecting a user
+    if (userId) {
+      get().clearUserUnreadMessages(userId);
+    }
     set({ selectedUser: userId });
+  },
+
+  // Notification actions
+  fetchNotifications: async () => {
+    try {
+      console.log("Fetching notifications...");
+      const token = Cookies.get("token") || localStorage.getItem("token");
+      if (!token) {
+        console.error("No token found for fetching notifications");
+        return;
+      }
+
+      const response = await fetch("http://localhost:5225/api/notification", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        console.error(
+          "Failed to fetch notifications:",
+          response.status,
+          response.statusText
+        );
+        throw new Error(
+          `Failed to fetch notifications: ${response.statusText}`
+        );
+      }
+
+      const notifications: any[] = await response.json();
+      console.log("Fetched notifications:", notifications);
+
+      if (notifications.length === 0) {
+        console.log("No notifications returned from the API");
+        return;
+      }
+
+      const processedNotifications: Notification[] = notifications.map((n) => {
+        // Try to parse the JSON payload if it's a string
+        let payload = n.payloadJson;
+
+        // Check for camelCase variations due to JSON serialization
+        if (!payload && n.payloadJson === undefined) {
+          payload = n.payloadJson || n.PayloadJson;
+        }
+
+        if (typeof payload === "string") {
+          try {
+            payload = JSON.parse(payload);
+          } catch (e) {
+            console.error("Error parsing notification payload:", e, payload);
+          }
+        }
+
+        // Extract type from the payload or the notification type field
+        // Account for different casings (type vs Type)
+        let type = n.type || n.Type;
+        if (payload && payload.type) {
+          type = payload.type;
+          payload = payload.data || payload;
+        }
+
+        return {
+          id: n.id || n.Id,
+          type: type,
+          payload: payload,
+          isRead: n.isRead || n.IsRead || false,
+          sentAt: new Date(n.sentAt || n.SentAt || new Date()),
+        };
+      });
+
+      console.log("Processed notifications:", processedNotifications);
+
+      const unreadCount = processedNotifications.filter(
+        (n) => !n.isRead
+      ).length;
+
+      set({
+        notifications: processedNotifications,
+        unreadNotifications: unreadCount,
+      });
+    } catch (err) {
+      console.error("Error fetching notifications:", err);
+    }
+  },
+
+  markNotificationAsRead: async (notificationId: number) => {
+    try {
+      const token = Cookies.get("token") || localStorage.getItem("token");
+      if (!token) return;
+
+      const response = await fetch(
+        `http://localhost:5225/api/notification/${notificationId}/read`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok) throw new Error("Failed to mark notification as read");
+
+      // Update local state
+      set((state) => ({
+        notifications: state.notifications.map((n) =>
+          n.id === notificationId ? { ...n, isRead: true } : n
+        ),
+        unreadNotifications: Math.max(0, state.unreadNotifications - 1),
+      }));
+    } catch (err) {
+      console.error("Error marking notification as read:", err);
+    }
+  },
+
+  markAllNotificationsAsRead: async () => {
+    try {
+      const token = Cookies.get("token") || localStorage.getItem("token");
+      if (!token) return;
+
+      const response = await fetch(
+        "http://localhost:5225/api/notification/read-all",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok)
+        throw new Error("Failed to mark all notifications as read");
+
+      // Update local state
+      set((state) => ({
+        notifications: state.notifications.map((n) => ({ ...n, isRead: true })),
+        unreadNotifications: 0,
+      }));
+    } catch (err) {
+      console.error("Error marking all notifications as read:", err);
+    }
+  },
+
+  addUserWithUnreadMessage: (userId: string) => {
+    set((state) => ({
+      usersWithUnreadMessages: new Set([
+        ...state.usersWithUnreadMessages,
+        userId,
+      ]),
+    }));
+  },
+
+  clearUserUnreadMessages: (userId: string) => {
+    set((state) => {
+      const newSet = new Set(state.usersWithUnreadMessages);
+      newSet.delete(userId);
+      return { usersWithUnreadMessages: newSet };
+    });
   },
 }));
 

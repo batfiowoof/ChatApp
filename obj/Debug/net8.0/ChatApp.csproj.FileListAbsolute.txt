@@ -294,3 +294,5 @@ C:\Users\Bozhidar\Projects\ChatApp\obj\Debug\net8.0\ChatApp.genruntimeconfig.cac
 C:\Users\Bozhidar\Projects\ChatApp\obj\Debug\net8.0\ref\ChatApp.dll
 C:\Users\Bozhidar\Projects\ChatApp\bin\Debug\net8.0\package-lock.json
 C:\Users\Bozhidar\Projects\ChatApp\bin\Debug\net8.0\package.json
+C:\Users\bojid\source\repos\ChatApp\ChatApp\bin\Debug\net8.0\package-lock.json
+C:\Users\bojid\source\repos\ChatApp\ChatApp\bin\Debug\net8.0\package.json

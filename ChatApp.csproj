@@ -22,9 +22,7 @@
     <Folder Include="API\Config\" />
     <Folder Include="API\Repositories\" />
     <Folder Include="API\Services\" />
-    <Folder Include="Infrastructure\Messaging\" />
     <Folder Include="Shared\Constants\" />
-    <Folder Include="Shared\Enums\" />
     <Folder Include="Shared\Utils\" />
   </ItemGroup>
 

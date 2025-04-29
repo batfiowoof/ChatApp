@@ -3,6 +3,7 @@ using System;
 using ChatApp.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ChatApp.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250429110102_AddNotificationTable")]
+    partial class AddNotificationTable
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -57,7 +60,7 @@ namespace ChatApp.Migrations
                     b.Property<bool>("IsRead")
                         .HasColumnType("boolean");
 
-                    b.Property<string>("PayloadJson")
+                    b.Property<string>("Message")
                         .IsRequired()
                         .HasColumnType("text");
 
@@ -67,8 +70,9 @@ namespace ChatApp.Migrations
                     b.Property<DateTime>("SentAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<int>("Type")
-                        .HasColumnType("integer");
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 

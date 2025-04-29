@@ -7,8 +7,13 @@ interface UserListProps {
 }
 
 export default function UserList({ title = "Users Online" }: UserListProps) {
-  const { users, selectedUser, setSelectedUser, currentUsername } =
-    useChatStore();
+  const {
+    users,
+    selectedUser,
+    setSelectedUser,
+    currentUsername,
+    usersWithUnreadMessages,
+  } = useChatStore();
 
   return (
     <div className="w-full h-full bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 overflow-hidden flex flex-col">
@@ -44,7 +49,17 @@ export default function UserList({ title = "Users Online" }: UserListProps) {
                     className="h-2 w-2 rounded-full bg-green-500 mr-2"
                     title="Online"
                   ></span>
-                  {user.username}
+                  <span className="flex-1">{user.username}</span>
+
+                  {/* Show unread message indicator */}
+                  {usersWithUnreadMessages.has(user.userId) && (
+                    <span
+                      className="ml-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center"
+                      title="Unread messages"
+                    >
+                      !
+                    </span>
+                  )}
                 </button>
               </li>
             ))}

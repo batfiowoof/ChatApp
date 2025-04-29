@@ -5,6 +5,7 @@ import { useState, useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import useChatStore from "@/store/useChatStore";
 import Cookies from "js-cookie";
+import NotificationDropdown from "@/components/common/NotificationDropdown";
 
 export default function Header() {
   const [isOpen, setIsOpen] = useState(false);
@@ -30,15 +31,21 @@ export default function Header() {
   };
 
   const handleLogout = async () => {
-    // Disconnect from SignalR
-    await disconnect();
+    try {
+      // Disconnect from SignalR
+      await disconnect();
 
-    // Clear authentication tokens
-    Cookies.remove("token");
-    localStorage.removeItem("token");
+      // Clear authentication tokens
+      Cookies.remove("token");
+      localStorage.removeItem("token");
 
-    // Redirect to home page
-    router.push("/");
+      // Redirect to home page and force a refresh
+      window.location.href = "/";
+    } catch (error) {
+      console.error("Error during logout:", error);
+      // Fallback to regular navigation if there's an error
+      router.push("/");
+    }
   };
 
   return (
@@ -113,6 +120,9 @@ export default function Header() {
           <div className="hidden md:flex items-center space-x-3">
             {isLoggedIn ? (
               <>
+                {/* Notification dropdown */}
+                <NotificationDropdown />
+
                 <span className="text-white px-3">
                   Welcome, {currentUsername || "User"}!
                 </span>
@@ -170,6 +180,12 @@ export default function Header() {
               >
                 Profile
               </Link>
+
+              {isLoggedIn && (
+                <div className="px-3 py-2">
+                  <NotificationDropdown />
+                </div>
+              )}
             </div>
             <div className="flex flex-col space-y-2 pt-2 pb-3 border-t border-primary-700">
               {isLoggedIn ? (

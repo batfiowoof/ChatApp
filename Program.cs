@@ -2,6 +2,7 @@ using System.Text;
 using ChatApp.API.Hubs;
 using ChatApp.Infrastructure.Auth;
 using ChatApp.Infrastructure.Data;
+using ChatApp.Infrastructure.Notification;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -18,6 +19,9 @@ builder.Services.AddSignalR();
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
 builder.Services.AddScoped<IAuthService, AuthService>();
+
+// Register the notification service
+builder.Services.AddScoped<INotificationService, NotificationService>();
 
 // jwt authentication middleware
 builder.Services.AddAuthentication("Bearer")
@@ -63,9 +67,6 @@ builder.Services.AddCors(options =>
             .AllowCredentials();
     });
 });
-
-
-
 
 var app = builder.Build();
 
