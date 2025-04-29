@@ -90,6 +90,20 @@ const useChatStore = create<ChatState>((set, get) => ({
       newConnection.on(
         "ReceiveMessage",
         (username: string, messageContent: string) => {
+          // Don't add duplicate messages if we already added this message locally
+          // We'll identify our own messages by the username
+          if (
+            get().messages.some(
+              (m) =>
+                m.sender === username &&
+                m.content === messageContent &&
+                // Check if the message was added in the last 1 second (to avoid filtering out legitimate duplicates)
+                Date.now() - new Date(m.timestamp).getTime() < 1000
+            )
+          ) {
+            return;
+          }
+
           const newMessage: Message = {
             id: Date.now().toString(),
             content: messageContent,
@@ -151,9 +165,26 @@ const useChatStore = create<ChatState>((set, get) => ({
       set({ isConnected: true, error: null });
 
       // Extract username from JWT token
-      const payload = authToken.split(".")[1];
-      const decodedPayload = JSON.parse(atob(payload));
-      set({ currentUsername: decodedPayload.unique_name || "Unknown" });
+      try {
+        const payload = authToken.split(".")[1];
+        const decodedPayload = JSON.parse(atob(payload));
+        console.log("JWT payload:", decodedPayload); // Debug log to check token structure
+
+        // Since the backend uses ClaimTypes.Name (which maps to 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name')
+        // We need to look for this specific claim
+        const username =
+          decodedPayload[
+            "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/name"
+          ] || // ClaimTypes.Name
+          decodedPayload.unique_name ||
+          decodedPayload.name ||
+          "Unknown";
+
+        set({ currentUsername: username });
+      } catch (err) {
+        console.error("Error extracting username from token:", err);
+        set({ currentUsername: "User" });
+      }
 
       console.log("Connected to SignalR hub!");
     } catch (err) {

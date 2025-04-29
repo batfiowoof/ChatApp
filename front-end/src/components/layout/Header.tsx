@@ -1,12 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { usePathname } from "next/navigation";
+import { useState, useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import useChatStore from "@/store/useChatStore";
+import Cookies from "js-cookie";
 
 export default function Header() {
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
+  const { currentUsername, isConnected, disconnect } = useChatStore();
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  // Check if user is logged in
+  useEffect(() => {
+    const token = Cookies.get("token") || localStorage.getItem("token");
+    setIsLoggedIn(!!token);
+  }, [currentUsername, isConnected]);
 
   const toggleMenu = () => {
     setIsOpen(!isOpen);
@@ -16,6 +27,18 @@ export default function Header() {
     return pathname === path
       ? "bg-primary-700 text-white"
       : "text-white hover:bg-primary-700";
+  };
+
+  const handleLogout = async () => {
+    // Disconnect from SignalR
+    await disconnect();
+
+    // Clear authentication tokens
+    Cookies.remove("token");
+    localStorage.removeItem("token");
+
+    // Redirect to home page
+    router.push("/");
   };
 
   return (
@@ -88,18 +111,34 @@ export default function Header() {
 
           {/* Auth buttons for desktop */}
           <div className="hidden md:flex items-center space-x-3">
-            <Link
-              href="/login"
-              className="bg-white text-primary-600 hover:bg-primary-100 px-4 py-2 rounded-md text-sm font-medium transition-colors"
-            >
-              Login
-            </Link>
-            <Link
-              href="/register"
-              className="bg-secondary-600 text-white hover:bg-secondary-700 px-4 py-2 rounded-md text-sm font-medium transition-colors"
-            >
-              Register
-            </Link>
+            {isLoggedIn ? (
+              <>
+                <span className="text-white px-3">
+                  Welcome, {currentUsername || "User"}!
+                </span>
+                <button
+                  onClick={handleLogout}
+                  className="bg-white text-primary-600 hover:bg-primary-100 px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                >
+                  Logout
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/login"
+                  className="bg-white text-primary-600 hover:bg-primary-100 px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                >
+                  Login
+                </Link>
+                <Link
+                  href="/register"
+                  className="bg-secondary-600 text-white hover:bg-secondary-700 px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                >
+                  Register
+                </Link>
+              </>
+            )}
           </div>
         </div>
 
@@ -133,18 +172,34 @@ export default function Header() {
               </Link>
             </div>
             <div className="flex flex-col space-y-2 pt-2 pb-3 border-t border-primary-700">
-              <Link
-                href="/login"
-                className="block bg-white text-primary-600 hover:bg-primary-100 px-3 py-2 rounded-md text-base font-medium"
-              >
-                Login
-              </Link>
-              <Link
-                href="/register"
-                className="block bg-secondary-600 text-white hover:bg-secondary-700 px-3 py-2 rounded-md text-base font-medium"
-              >
-                Register
-              </Link>
+              {isLoggedIn ? (
+                <>
+                  <span className="block px-3 py-2 text-white">
+                    Welcome, {currentUsername || "User"}!
+                  </span>
+                  <button
+                    onClick={handleLogout}
+                    className="block bg-white text-primary-600 hover:bg-primary-100 px-3 py-2 rounded-md text-base font-medium"
+                  >
+                    Logout
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    className="block bg-white text-primary-600 hover:bg-primary-100 px-3 py-2 rounded-md text-base font-medium"
+                  >
+                    Login
+                  </Link>
+                  <Link
+                    href="/register"
+                    className="block bg-secondary-600 text-white hover:bg-secondary-700 px-3 py-2 rounded-md text-base font-medium"
+                  >
+                    Register
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         )}
