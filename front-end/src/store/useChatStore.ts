@@ -4,10 +4,19 @@ import * as signalR from "@microsoft/signalr";
 import Cookies from "js-cookie";
 import axios from "axios";
 
+// Define the API base URL from environment or use default
+const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5225/api";
+const SIGNALR_URL =
+  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/api$/, "") ||
+  "http://localhost:5225";
+
 export interface UserInfo {
   userId: string;
   username: string;
   isOnline: boolean;
+  profilePictureUrl?: string;
+  bio?: string;
 }
 
 export interface Message {
@@ -107,7 +116,7 @@ const useChatStore = create<ChatState>((set, get) => ({
 
       // Create a new connection
       const newConnection = new signalR.HubConnectionBuilder()
-        .withUrl("http://localhost:5225/hubs/chat", {
+        .withUrl(`${SIGNALR_URL}/hubs/chat`, {
           accessTokenFactory: () => authToken,
           skipNegotiation: true,
           transport: signalR.HttpTransportType.WebSockets,
@@ -374,7 +383,7 @@ const useChatStore = create<ChatState>((set, get) => ({
       }
 
       const response = await axios.get(
-        `http://localhost:5225/api/Message/history/${userId}`,
+        `${API_BASE_URL}/Message/history/${userId}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -436,14 +445,11 @@ const useChatStore = create<ChatState>((set, get) => ({
       }
 
       // Using the correct API endpoint URL that matches the rest of the application
-      const response = await axios.get(
-        "http://localhost:5225/api/Message/public",
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      const response = await axios.get(`${API_BASE_URL}/Message/public`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
       console.log("Public messages response:", response.data); // Debug log
 
@@ -505,13 +511,13 @@ const useChatStore = create<ChatState>((set, get) => ({
         return;
       }
 
-      const response = await fetch("http://localhost:5225/api/notification", {
+      const response = await axios.get(`${API_BASE_URL}/notification`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
 
-      if (!response.ok) {
+      if (response.status !== 200) {
         console.error(
           "Failed to fetch notifications:",
           response.status,
@@ -522,7 +528,7 @@ const useChatStore = create<ChatState>((set, get) => ({
         );
       }
 
-      const notifications: any[] = await response.json();
+      const notifications: any[] = response.data;
       console.log("Fetched notifications:", notifications);
 
       if (!notifications?.length) {
@@ -610,10 +616,16 @@ const useChatStore = create<ChatState>((set, get) => ({
       const token = Cookies.get("token") || localStorage.getItem("token");
       if (!token) return;
 
-      const response = await fetch(
-        `http://localhost:5225/api/notification/${notificationId}/read`,
+      // Find notification first to get the sender info before marking as read
+      const notification = get().notifications.find(
+        (n) => n.id === notificationId
+      );
+      const senderId = notification?.payload?.senderId;
+
+      const response = await axios.put(
+        `${API_BASE_URL}/notification/${notificationId}/read`,
+        {},
         {
-          method: "PUT",
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -629,6 +641,12 @@ const useChatStore = create<ChatState>((set, get) => ({
         ),
         unreadNotifications: Math.max(0, state.unreadNotifications - 1),
       }));
+
+      // If it's a private message notification and has senderId, set the selected user
+      if (notification?.type === "PrivateMessage" && senderId) {
+        // Set the selected user to navigate to the chat
+        get().setSelectedUser(senderId);
+      }
     } catch (err) {
       console.error("Error marking notification as read:", err);
     }
@@ -639,10 +657,10 @@ const useChatStore = create<ChatState>((set, get) => ({
       const token = Cookies.get("token") || localStorage.getItem("token");
       if (!token) return;
 
-      const response = await fetch(
-        "http://localhost:5225/api/notification/read-all",
+      const response = await axios.post(
+        `${API_BASE_URL}/notification/read-all`,
+        {},
         {
-          method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -667,10 +685,9 @@ const useChatStore = create<ChatState>((set, get) => ({
       const token = Cookies.get("token") || localStorage.getItem("token");
       if (!token) return;
 
-      const response = await fetch(
-        "http://localhost:5225/api/notification/delete-all",
+      const response = await axios.delete(
+        `${API_BASE_URL}/notification/delete-all`,
         {
-          method: "DELETE",
           headers: {
             Authorization: `Bearer ${token}`,
           },

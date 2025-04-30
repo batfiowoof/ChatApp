@@ -8,6 +8,8 @@ import UserList from "./UserList";
 import MessagesList from "./MessagesList";
 import MessageInput from "./MessageInput";
 import { useLoading } from "@/components/common/GlobalLoadingProvider";
+import Image from "next/image";
+import Link from "next/link";
 
 export default function ChatInterface() {
   const { connect, error, selectedUser, users } = useChatStore();
@@ -48,9 +50,9 @@ export default function ChatInterface() {
     // alive in our global store across component changes
   }, [connect, router, showLoading, hideLoading]);
 
-  // Get the selected username for display
-  const selectedUsername = selectedUser
-    ? users.find((u) => u.userId === selectedUser)?.username
+  // Get the selected user for display
+  const selectedUserData = selectedUser
+    ? users.find((u) => u.userId === selectedUser)
     : null;
 
   return (
@@ -62,11 +64,36 @@ export default function ChatInterface() {
 
       {/* Chat area */}
       <div className="w-full md:w-3/4 bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 flex flex-col">
-        <h2 className="text-lg font-semibold mb-3 text-primary-600">
-          {selectedUser
-            ? `Private Chat with ${selectedUsername || "User"}`
-            : "Public Chat"}
-        </h2>
+        <div className="flex items-center mb-3">
+          {selectedUser ? (
+            <>
+              <Link
+                href={`/profile/${selectedUser}`}
+                className="flex items-center hover:opacity-80"
+              >
+                <div className="w-10 h-10 rounded-full overflow-hidden mr-3">
+                  <Image
+                    src={
+                      selectedUserData?.profilePictureUrl ||
+                      "/images/default-avatar.png"
+                    }
+                    alt={selectedUserData?.username || "User"}
+                    width={40}
+                    height={40}
+                    className="object-cover"
+                  />
+                </div>
+                <h2 className="text-lg font-semibold text-primary-600">
+                  Private Chat with {selectedUserData?.username || "User"}
+                </h2>
+              </Link>
+            </>
+          ) : (
+            <h2 className="text-lg font-semibold text-primary-600">
+              Public Chat
+            </h2>
+          )}
+        </div>
 
         {/* Error display */}
         {error && (

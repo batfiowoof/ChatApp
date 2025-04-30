@@ -1,6 +1,8 @@
 "use client";
 
 import useChatStore from "@/store/useChatStore";
+import Image from "next/image";
+import Link from "next/link";
 
 interface UserListProps {
   title?: string;
@@ -14,6 +16,9 @@ export default function UserList({ title = "Online Users" }: UserListProps) {
     currentUsername,
     usersWithUnreadMessages,
   } = useChatStore();
+
+  // Find the current user's data including profile picture
+  const currentUser = users.find((user) => user.username === currentUsername);
 
   return (
     <div className="w-full h-full bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 overflow-hidden flex flex-col">
@@ -47,10 +52,27 @@ export default function UserList({ title = "Online Users" }: UserListProps) {
                       : "hover:bg-gray-100 dark:hover:bg-gray-700"
                   }`}
                 >
-                  <span
-                    className="h-2 w-2 rounded-full bg-green-500 mr-2"
-                    title="Online"
-                  ></span>
+                  <Link
+                    href={`/profile/${user.userId}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="relative mr-3 hover:opacity-80 transition-opacity"
+                  >
+                    <div className="w-8 h-8 rounded-full overflow-hidden">
+                      <Image
+                        src={
+                          user.profilePictureUrl || "/images/default-avatar.png"
+                        }
+                        alt={user.username}
+                        width={32}
+                        height={32}
+                        className="object-cover"
+                      />
+                    </div>
+                    <span
+                      className="absolute bottom-0 right-0 h-2 w-2 rounded-full bg-green-500 border border-white dark:border-gray-800"
+                      title="Online"
+                    ></span>
+                  </Link>
                   <span className="flex-1">{user.username}</span>
 
                   {/* Show unread message indicator */}
@@ -69,12 +91,29 @@ export default function UserList({ title = "Online Users" }: UserListProps) {
           {currentUsername && (
             <li className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
               <div className="px-3 py-2 flex items-center text-gray-500">
-                <span
-                  className="h-2 w-2 rounded-full bg-green-500 mr-2"
-                  title="Online"
-                ></span>
-                <span>{currentUsername}</span>
-                <span className="ml-auto text-xs bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded">
+                <Link
+                  href="/profile"
+                  className="relative mr-3 hover:opacity-80 transition-opacity"
+                >
+                  <div className="w-8 h-8 rounded-full overflow-hidden">
+                    <Image
+                      src={
+                        currentUser?.profilePictureUrl ||
+                        "/images/default-avatar.png"
+                      }
+                      alt={currentUsername}
+                      width={32}
+                      height={32}
+                      className="object-cover"
+                    />
+                  </div>
+                  <span
+                    className="absolute bottom-0 right-0 h-2 w-2 rounded-full bg-green-500 border border-white dark:border-gray-800"
+                    title="Online"
+                  ></span>
+                </Link>
+                <span className="flex-1">{currentUsername}</span>
+                <span className="text-xs bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded">
                   You
                 </span>
               </div>
@@ -99,8 +138,25 @@ export default function UserList({ title = "Online Users" }: UserListProps) {
                       : "hover:bg-gray-100 dark:hover:bg-gray-700"
                   }`}
                 >
-                  <span>{user.username}</span>
-                  <span className="ml-4 text-xs bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded">
+                  <Link
+                    href={`/profile/${user.userId}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="hover:opacity-80 transition-opacity"
+                  >
+                    <div className="w-8 h-8 rounded-full overflow-hidden mr-3">
+                      <Image
+                        src={
+                          user.profilePictureUrl || "/images/default-avatar.png"
+                        }
+                        alt={user.username}
+                        width={32}
+                        height={32}
+                        className="object-cover"
+                      />
+                    </div>
+                  </Link>
+                  <span className="flex-1">{user.username}</span>
+                  <span className="ml-2 text-xs bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded">
                     Offline
                   </span>
                 </button>

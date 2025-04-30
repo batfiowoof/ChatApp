@@ -18,10 +18,18 @@ export default function ToastProvider() {
       switch (lastNotification.type) {
         case "PrivateMessage":
           toast(
-            <div onClick={() => markNotificationAsRead(lastNotification.id)}>
+            <div
+              onClick={() => {
+                markNotificationAsRead(lastNotification.id);
+                router.push("/chat");
+              }}
+              className="cursor-pointer"
+            >
               <p className="font-bold">New Private Message</p>
               <p>From: {lastNotification.payload?.senderName || "Someone"}</p>
-              <p className="text-xs text-gray-500">Click to mark as read</p>
+              <p className="text-xs text-gray-500">
+                Click to view conversation
+              </p>
             </div>,
             { duration: 2000 }
           );

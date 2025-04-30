@@ -1,11 +1,19 @@
 {
   "Version": 1,
-  "Hash": "/WaPPn3cDP9xMCNEPZKZQwoA5RA+USgYIvnCB1FGsOQ=",
+  "Hash": "hqe6Rb24OKpseWhasU6ulqHOngWAlOVIHcxszVjZ4x4=",
   "Source": "ChatApp",
   "BasePath": "_content/ChatApp",
   "Mode": "Default",
   "ManifestType": "Build",
   "ReferencedProjectsConfiguration": [],
-  "DiscoveryPatterns": [],
+  "DiscoveryPatterns": [
+    {
+      "Name": "ChatApp\\wwwroot",
+      "Source": "ChatApp",
+      "ContentRoot": "C:\\Users\\bojid\\source\\repos\\ChatApp\\ChatApp\\wwwroot\\",
+      "BasePath": "_content/ChatApp",
+      "Pattern": "**"
+    }
+  ],
   "Assets": []
 }

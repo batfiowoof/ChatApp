@@ -1,59 +1,43 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import axios from "axios";
-import Cookies from "js-cookie";
+import useAuthStore from "@/store/useAuthStore";
 
 export default function LoginForm() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
   const router = useRouter();
+
+  // Get state and actions from auth store
+  const { login, error, isLoading, isAuthenticated, clearError } =
+    useAuthStore();
+
+  // Check if already authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.push("/chat");
+    }
+  }, [isAuthenticated, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!username || !password) {
-      setError("Please fill in all fields");
+      useAuthStore.getState().setError("Please fill in all fields");
       return;
     }
 
-    setLoading(true);
-    setError("");
+    // Clear any previous errors
+    clearError();
 
-    try {
-      const response = await axios.post(
-        "http://localhost:5225/api/Auth/login",
-        {
-          username,
-          password,
-        }
-      );
+    // Call the login function from the store
+    const success = await login(username, password);
 
-      // Store token in both cookie and localStorage
-      // The cookie will be used for API requests
-      // The httpOnly flag ensures better security but is only set by the server
-      Cookies.set("token", response.data.token, {
-        expires: 7,
-        sameSite: "strict",
-      });
-      localStorage.setItem("token", response.data.token);
-
-      // Redirect to chat
+    // If successful, router will handle redirect due to the useEffect above
+    if (success) {
       router.push("/chat");
-    } catch (err) {
-      console.error("Login error:", err);
-      const errorMessage =
-        axios.isAxiosError(err) && err.response?.data?.message
-          ? err.response.data.message
-          : "Failed to login. Please check your credentials.";
-
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -87,7 +71,7 @@ export default function LoginForm() {
               onChange={(e) => setUsername(e.target.value)}
               className="input-field w-full"
               placeholder="Enter your username"
-              disabled={loading}
+              disabled={isLoading}
             />
           </div>
 
@@ -105,7 +89,7 @@ export default function LoginForm() {
               onChange={(e) => setPassword(e.target.value)}
               className="input-field w-full"
               placeholder="Enter your password"
-              disabled={loading}
+              disabled={isLoading}
             />
           </div>
 
@@ -113,9 +97,9 @@ export default function LoginForm() {
             <button
               type="submit"
               className="btn-primary w-full"
-              disabled={loading}
+              disabled={isLoading}
             >
-              {loading ? "Logging in..." : "Login"}
+              {isLoading ? "Logging in..." : "Login"}
             </button>
           </div>
         </form>

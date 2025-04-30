@@ -1,6 +1,9 @@
 "use client";
 
 import { formatDistanceToNow } from "date-fns";
+import Image from "next/image";
+import Link from "next/link";
+import useChatStore from "@/store/useChatStore";
 
 interface ChatMessageProps {
   content: string;
@@ -8,6 +11,8 @@ interface ChatMessageProps {
   isCurrentUser: boolean;
   timestamp: Date;
   isPrivate: boolean;
+  profilePicture?: string;
+  senderId?: string;
 }
 
 export default function ChatMessage({
@@ -16,13 +21,39 @@ export default function ChatMessage({
   isCurrentUser,
   timestamp,
   isPrivate,
+  profilePicture,
+  senderId,
 }: ChatMessageProps) {
+  const { users } = useChatStore();
   const formattedTime = formatDistanceToNow(timestamp, { addSuffix: true });
+
+  // Find user's profile picture if not directly provided
+  const user = users.find((u) => u.username === sender);
+  const avatarSrc =
+    profilePicture || user?.profilePictureUrl || "/images/default-avatar.png";
+  const userId = senderId || user?.userId;
 
   return (
     <div
-      className={`flex mb-4 ${isCurrentUser ? "justify-end" : "justify-start"}`}
+      className={`flex mb-4 items-start ${
+        isCurrentUser ? "justify-end" : "justify-start"
+      }`}
     >
+      {!isCurrentUser && (
+        <Link
+          href={userId ? `/profile/${userId}` : "#"}
+          className="w-8 h-8 rounded-full overflow-hidden mr-2 flex-shrink-0 hover:opacity-80 transition-opacity"
+        >
+          <Image
+            src={avatarSrc}
+            alt={sender}
+            width={32}
+            height={32}
+            className="object-cover"
+          />
+        </Link>
+      )}
+
       <div
         className={`max-w-[75%] rounded-lg px-4 py-2 ${
           isCurrentUser
@@ -43,6 +74,21 @@ export default function ChatMessage({
         <div className="my-1">{content}</div>
         <div className="text-xs opacity-70 text-right">{formattedTime}</div>
       </div>
+
+      {isCurrentUser && (
+        <Link
+          href="/profile"
+          className="w-8 h-8 rounded-full overflow-hidden ml-2 flex-shrink-0 hover:opacity-80 transition-opacity"
+        >
+          <Image
+            src={avatarSrc}
+            alt={sender}
+            width={32}
+            height={32}
+            className="object-cover"
+          />
+        </Link>
+      )}
     </div>
   );
 }

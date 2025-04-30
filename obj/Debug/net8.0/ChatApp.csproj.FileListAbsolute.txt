@@ -296,3 +296,4 @@ C:\Users\Bozhidar\Projects\ChatApp\bin\Debug\net8.0\package-lock.json
 C:\Users\Bozhidar\Projects\ChatApp\bin\Debug\net8.0\package.json
 C:\Users\bojid\source\repos\ChatApp\ChatApp\bin\Debug\net8.0\package-lock.json
 C:\Users\bojid\source\repos\ChatApp\ChatApp\bin\Debug\net8.0\package.json
+C:\Users\bojid\source\repos\ChatApp\ChatApp\bin\Debug\net8.0\ChatApp.staticwebassets.runtime.json

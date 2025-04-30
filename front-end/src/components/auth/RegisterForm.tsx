@@ -3,15 +3,16 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import axios from "axios";
+import useAuthStore from "@/store/useAuthStore";
 
 export default function RegisterForm() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
   const router = useRouter();
+
+  // Get state and actions from auth store
+  const { register, error, isLoading, clearError, setError } = useAuthStore();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,31 +27,15 @@ export default function RegisterForm() {
       return;
     }
 
-    setLoading(true);
-    setError("");
+    // Clear any previous errors
+    clearError();
 
-    try {
-      const response = await axios.post(
-        "http://localhost:5225/api/Auth/register",
-        {
-          username,
-          password,
-        }
-      );
+    // Call the register function from the store
+    const success = await register(username, password);
 
-      // Redirect to login page after successful registration
+    // If successful, redirect to login page
+    if (success) {
       router.push("/login?registered=true");
-    } catch (err) {
-      console.error("Registration error:", err);
-
-      const errorMessage =
-        axios.isAxiosError(err) && err.response?.data?.message
-          ? err.response.data.message
-          : "An error occurred during registration";
-
-      setError(errorMessage);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -82,7 +67,7 @@ export default function RegisterForm() {
               onChange={(e) => setUsername(e.target.value)}
               className="input-field w-full"
               placeholder="Choose a username"
-              disabled={loading}
+              disabled={isLoading}
               minLength={3}
               maxLength={20}
             />
@@ -102,7 +87,7 @@ export default function RegisterForm() {
               onChange={(e) => setPassword(e.target.value)}
               className="input-field w-full"
               placeholder="Create a password"
-              disabled={loading}
+              disabled={isLoading}
               minLength={6}
             />
           </div>
@@ -121,7 +106,7 @@ export default function RegisterForm() {
               onChange={(e) => setConfirmPassword(e.target.value)}
               className="input-field w-full"
               placeholder="Confirm your password"
-              disabled={loading}
+              disabled={isLoading}
               minLength={6}
             />
           </div>
@@ -130,9 +115,9 @@ export default function RegisterForm() {
             <button
               type="submit"
               className="btn-primary w-full"
-              disabled={loading}
+              disabled={isLoading}
             >
-              {loading ? "Registering..." : "Register"}
+              {isLoading ? "Registering..." : "Register"}
             </button>
           </div>
         </form>
