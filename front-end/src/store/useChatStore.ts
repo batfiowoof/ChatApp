@@ -632,7 +632,7 @@ const useChatStore = create<ChatState>((set, get) => ({
         }
       );
 
-      if (!response.ok) throw new Error("Failed to mark notification as read");
+      if (response.status !== 200) throw new Error("Failed to mark notification as read");
 
       // Update local state
       set((state) => ({
@@ -667,7 +667,7 @@ const useChatStore = create<ChatState>((set, get) => ({
         }
       );
 
-      if (!response.ok)
+      if (response.status !== 200)
         throw new Error("Failed to mark all notifications as read");
 
       // Update local state
@@ -694,7 +694,7 @@ const useChatStore = create<ChatState>((set, get) => ({
         }
       );
 
-      if (!response.ok) throw new Error("Failed to delete all notifications");
+      if (response.status !== 200) throw new Error("Failed to delete all notifications");
 
       // Clear notifications in local state
       set({
