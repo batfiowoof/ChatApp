@@ -1,6 +1,6 @@
 {
   "Version": 1,
-  "Hash": "hqe6Rb24OKpseWhasU6ulqHOngWAlOVIHcxszVjZ4x4=",
+  "Hash": "JE81IxmkpXkIXA2vgGQAcEETaJyGnVWYPg2dVEpa07Y=",
   "Source": "ChatApp",
   "BasePath": "_content/ChatApp",
   "Mode": "Default",
@@ -10,10 +10,30 @@
     {
       "Name": "ChatApp\\wwwroot",
       "Source": "ChatApp",
-      "ContentRoot": "C:\\Users\\bojid\\source\\repos\\ChatApp\\ChatApp\\wwwroot\\",
+      "ContentRoot": "C:\\Users\\Bozhidar\\Projects\\ChatApp\\wwwroot\\",
       "BasePath": "_content/ChatApp",
       "Pattern": "**"
     }
   ],
-  "Assets": []
+  "Assets": [
+    {
+      "Identity": "C:\\Users\\Bozhidar\\Projects\\ChatApp\\wwwroot\\uploads\\profiles\\c4c9683f-64d4-45d1-a4f5-aee14c36e7d2.png",
+      "SourceId": "ChatApp",
+      "SourceType": "Discovered",
+      "ContentRoot": "C:\\Users\\Bozhidar\\Projects\\ChatApp\\wwwroot\\",
+      "BasePath": "_content/ChatApp",
+      "RelativePath": "uploads/profiles/c4c9683f-64d4-45d1-a4f5-aee14c36e7d2.png",
+      "AssetKind": "All",
+      "AssetMode": "All",
+      "AssetRole": "Primary",
+      "AssetMergeBehavior": "PreferTarget",
+      "AssetMergeSource": "",
+      "RelatedAsset": "",
+      "AssetTraitName": "",
+      "AssetTraitValue": "",
+      "CopyToOutputDirectory": "Never",
+      "CopyToPublishDirectory": "PreserveNewest",
+      "OriginalItemSpec": "wwwroot\\uploads\\profiles\\c4c9683f-64d4-45d1-a4f5-aee14c36e7d2.png"
+    }
+  ]
 }

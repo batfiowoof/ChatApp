@@ -1,20 +1,20 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\bojid\\source\\repos\\ChatApp\\ChatApp\\ChatApp.csproj": {}
+    "C:\\Users\\Bozhidar\\Projects\\ChatApp\\ChatApp.csproj": {}
   },
   "projects": {
-    "C:\\Users\\bojid\\source\\repos\\ChatApp\\ChatApp\\ChatApp.csproj": {
+    "C:\\Users\\Bozhidar\\Projects\\ChatApp\\ChatApp.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\bojid\\source\\repos\\ChatApp\\ChatApp\\ChatApp.csproj",
+        "projectUniqueName": "C:\\Users\\Bozhidar\\Projects\\ChatApp\\ChatApp.csproj",
         "projectName": "ChatApp",
-        "projectPath": "C:\\Users\\bojid\\source\\repos\\ChatApp\\ChatApp\\ChatApp.csproj",
-        "packagesPath": "C:\\Users\\bojid\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\bojid\\source\\repos\\ChatApp\\ChatApp\\obj\\",
+        "projectPath": "C:\\Users\\Bozhidar\\Projects\\ChatApp\\ChatApp.csproj",
+        "packagesPath": "C:\\Users\\Bozhidar\\.nuget\\packages\\",
+        "outputPath": "C:\\Users\\Bozhidar\\Projects\\ChatApp\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "C:\\Users\\bojid\\AppData\\Roaming\\NuGet\\NuGet.Config",
+          "C:\\Users\\Bozhidar\\AppData\\Roaming\\NuGet\\NuGet.Config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
         "originalTargetFrameworks": [
@@ -22,7 +22,6 @@
         ],
         "sources": {
           "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
-          "C:\\Program Files\\dotnet\\library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -92,7 +91,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.401/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.408/PortableRuntimeIdentifierGraph.json"
         }
       }
     }

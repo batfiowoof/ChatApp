@@ -11,6 +11,11 @@ const SIGNALR_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/api$/, "") ||
   "http://localhost:5225";
 
+// Track connection state globally (outside the store)
+let globalConnection: signalR.HubConnection | null = null;
+let connectionAttemptInProgress = false;
+let reconnectTimeout: NodeJS.Timeout | null = null;
+
 export interface UserInfo {
   userId: string;
   username: string;
@@ -96,9 +101,30 @@ const useChatStore = create<ChatState>((set, get) => ({
 
   // Connection management
   connect: async (token?: string) => {
-    // If already connected, do nothing
-    if (get().connection && get().isConnected) {
+    // If already connected or connection attempt is in progress, return the existing connection
+    if (
+      globalConnection &&
+      globalConnection.state === signalR.HubConnectionState.Connected
+    ) {
+      set({ connection: globalConnection, isConnected: true, error: null });
       return;
+    }
+
+    // Prevent multiple simultaneous connection attempts
+    if (connectionAttemptInProgress) {
+      console.log("Connection attempt already in progress, waiting...");
+
+      // Wait for the existing attempt to finish or timeout after 5 seconds
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+
+      // If connection was established during the wait, use it
+      if (
+        globalConnection &&
+        globalConnection.state === signalR.HubConnectionState.Connected
+      ) {
+        set({ connection: globalConnection, isConnected: true, error: null });
+        return;
+      }
     }
 
     // Get token from parameters, cookie, or localStorage
@@ -111,128 +137,158 @@ const useChatStore = create<ChatState>((set, get) => ({
     }
 
     try {
-      // Clean up any existing connection
-      await get().disconnect();
+      // Set flag to prevent multiple connection attempts
+      connectionAttemptInProgress = true;
 
-      // Create a new connection
-      const newConnection = new signalR.HubConnectionBuilder()
-        .withUrl(`${SIGNALR_URL}/hubs/chat`, {
-          accessTokenFactory: () => authToken,
-          skipNegotiation: true,
-          transport: signalR.HttpTransportType.WebSockets,
-        })
-        .withAutomaticReconnect()
-        .configureLogging(signalR.LogLevel.Information)
-        .build();
+      // If there's a reconnect timeout, clear it
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
+      }
 
-      // Set up event handlers
-      newConnection.on(
-        "ReceiveMessage",
-        (username: string, messageContent: string) => {
-          // Don't add duplicate messages if we already added this message locally
-          // We'll identify our own messages by the username
-          if (
-            get().messages.some(
-              (m) =>
-                m.sender === username &&
-                m.content === messageContent &&
-                // Check if the message was added in the last 1 second (to avoid filtering out legitimate duplicates)
-                Date.now() - new Date(m.timestamp).getTime() < 1000
-            )
-          ) {
-            return;
+      // Clean up any existing connection that isn't in Connected state
+      if (
+        globalConnection &&
+        globalConnection.state !== signalR.HubConnectionState.Connected
+      ) {
+        try {
+          await globalConnection.stop();
+          globalConnection = null;
+        } catch (err) {
+          console.warn("Error stopping previous connection:", err);
+        }
+      }
+
+      // Only create a new connection if we don't have a valid one
+      if (!globalConnection) {
+        // Create a new connection
+        globalConnection = new signalR.HubConnectionBuilder()
+          .withUrl(`${SIGNALR_URL}/hubs/chat`, {
+            accessTokenFactory: () => authToken,
+            skipNegotiation: true,
+            transport: signalR.HttpTransportType.WebSockets,
+          })
+          .withAutomaticReconnect([0, 2000, 5000, 10000, 20000, 30000, 60000]) // More aggressive reconnect
+          .configureLogging(signalR.LogLevel.Information)
+          .build();
+
+        // Set up event handlers
+        globalConnection.on(
+          "ReceiveMessage",
+          (username: string, messageContent: string) => {
+            // Don't add duplicate messages if we already added this message locally
+            // We'll identify our own messages by the username
+            if (
+              get().messages.some(
+                (m) =>
+                  m.sender === username &&
+                  m.content === messageContent &&
+                  // Check if the message was added in the last 1 second (to avoid filtering out legitimate duplicates)
+                  Date.now() - new Date(m.timestamp).getTime() < 1000
+              )
+            ) {
+              return;
+            }
+
+            const newMessage: Message = {
+              id: Date.now().toString(),
+              content: messageContent,
+              sender: username,
+              timestamp: new Date(),
+              isPrivate: false,
+            };
+            get().addMessage(newMessage);
           }
+        );
 
-          const newMessage: Message = {
-            id: Date.now().toString(),
-            content: messageContent,
-            sender: username,
-            timestamp: new Date(),
-            isPrivate: false,
-          };
-          get().addMessage(newMessage);
-        }
-      );
+        globalConnection.on(
+          "ReceivePrivateMessage",
+          (username: string, messageContent: string) => {
+            // Find the user ID based on the username
+            const sender = get().users.find((u) => u.username === username);
+            const senderId = sender?.userId;
 
-      newConnection.on(
-        "ReceivePrivateMessage",
-        (username: string, messageContent: string) => {
-          // Find the user ID based on the username
-          const sender = get().users.find((u) => u.username === username);
-          const senderId = sender?.userId;
+            const newMessage: Message = {
+              id: Date.now().toString(),
+              content: messageContent,
+              sender: username,
+              timestamp: new Date(),
+              isPrivate: true,
+            };
+            get().addMessage(newMessage);
 
-          const newMessage: Message = {
-            id: Date.now().toString(),
-            content: messageContent,
-            sender: username,
-            timestamp: new Date(),
-            isPrivate: true,
-          };
-          get().addMessage(newMessage);
-
-          // If we're not currently chatting with this user, mark them as having unread messages
-          if (get().selectedUser !== senderId && senderId) {
-            get().addUserWithUnreadMessage(senderId);
+            // If we're not currently chatting with this user, mark them as having unread messages
+            if (get().selectedUser !== senderId && senderId) {
+              get().addUserWithUnreadMessage(senderId);
+            }
           }
-        }
-      );
+        );
 
-      // Updated handler for new notifications
-      newConnection.on(
-        "NewNotification",
-        (id: number, payload: any, sentAt: string) => {
-          console.log("Received notification:", { id, payload, sentAt });
+        // Updated handler for new notifications
+        globalConnection.on(
+          "NewNotification",
+          (id: number, payload: any, sentAt: string) => {
+            console.log("Received notification:", { id, payload, sentAt });
 
-          // Extract notification type and data from the new payload structure
-          const notificationType = payload.type || "unknown";
-          const notificationData = payload.data || payload;
+            // Extract notification type and data from the new payload structure
+            const notificationType = payload.type || "unknown";
+            const notificationData = payload.data || payload;
 
-          const newNotification: Notification = {
-            id,
-            type: notificationType,
-            payload: notificationData,
-            isRead: false,
-            sentAt: new Date(sentAt),
-          };
+            const newNotification: Notification = {
+              id,
+              type: notificationType,
+              payload: notificationData,
+              isRead: false,
+              sentAt: new Date(sentAt),
+            };
 
-          set((state) => ({
-            notifications: [newNotification, ...state.notifications],
-            unreadNotifications: state.unreadNotifications + 1,
-          }));
-        }
-      );
+            set((state) => ({
+              notifications: [newNotification, ...state.notifications],
+              unreadNotifications: state.unreadNotifications + 1,
+            }));
+          }
+        );
 
-      newConnection.on("UpdateUserList", (userList: UserInfo[]) => {
-        set({ users: userList });
-      });
-
-      newConnection.on("UserNotConnected", (errorMessage: string) => {
-        set({ error: `Error: ${errorMessage}` });
-        // Clear error after 5 seconds
-        setTimeout(() => set({ error: null }), 5000);
-      });
-
-      // Handle connection close
-      newConnection.onclose((error) => {
-        console.log("Connection closed", error);
-        set({
-          isConnected: false,
-          error: "Connection closed. Attempting to reconnect...",
+        globalConnection.on("UpdateUserList", (userList: UserInfo[]) => {
+          set({ users: userList });
         });
 
-        // You can implement reconnection logic here if needed
-        setTimeout(() => {
-          if (!get().isConnected) {
-            get().connect(authToken);
+        globalConnection.on("UserNotConnected", (errorMessage: string) => {
+          set({ error: `Error: ${errorMessage}` });
+          // Clear error after 5 seconds
+          setTimeout(() => set({ error: null }), 5000);
+        });
+
+        // Handle connection close
+        globalConnection.onclose((error) => {
+          console.log("Connection closed", error);
+          set({
+            isConnected: false,
+            error: "Connection closed. Attempting to reconnect...",
+          });
+
+          // Implement progressive reconnection logic
+          if (!reconnectTimeout) {
+            reconnectTimeout = setTimeout(() => {
+              reconnectTimeout = null;
+              if (
+                globalConnection?.state !== signalR.HubConnectionState.Connected
+              ) {
+                connectionAttemptInProgress = false;
+                get().connect(authToken);
+              }
+            }, 3000);
           }
-        }, 5000);
-      });
+        });
+      }
 
-      // Update state with the new connection
-      set({ connection: newConnection });
+      // Update state with the connection
+      set({ connection: globalConnection });
 
-      // Start the connection
-      await newConnection.start();
+      // Start the connection if not already connected
+      if (globalConnection.state !== signalR.HubConnectionState.Connected) {
+        await globalConnection.start();
+      }
 
       // Set connected state
       set({ isConnected: true, error: null });
@@ -275,19 +331,27 @@ const useChatStore = create<ChatState>((set, get) => ({
           err instanceof Error ? err.message : String(err)
         }`,
       });
+
+      // Reset the global connection if it failed to connect
+      globalConnection = null;
+
       throw err;
+    } finally {
+      // Reset the connection attempt flag
+      connectionAttemptInProgress = false;
     }
   },
 
   disconnect: async () => {
-    const connection = get().connection;
+    // Only disconnect if explicitly called - don't stop on component unmounts
 
     if (
-      connection &&
-      connection.state !== signalR.HubConnectionState.Disconnected
+      globalConnection &&
+      globalConnection.state !== signalR.HubConnectionState.Disconnected
     ) {
       try {
-        await connection.stop();
+        await globalConnection.stop();
+        globalConnection = null;
         console.log("Disconnected from SignalR hub");
       } catch (err) {
         console.warn("Error while disconnecting:", err);
@@ -310,7 +374,7 @@ const useChatStore = create<ChatState>((set, get) => ({
   },
 
   getConnection: () => {
-    return get().connection;
+    return globalConnection;
   },
 
   setError: (error: string | null) => {
@@ -319,14 +383,14 @@ const useChatStore = create<ChatState>((set, get) => ({
 
   // Message actions
   sendPublicMessage: async (message: string) => {
-    const { connection, isConnected, currentUsername } = get();
+    const { isConnected, currentUsername } = get();
 
-    if (!message.trim() || !connection || !isConnected) {
+    if (!message.trim() || !globalConnection || !isConnected) {
       return;
     }
 
     try {
-      await connection.invoke("SendPublicMessage", message);
+      await globalConnection.invoke("SendPublicMessage", message);
     } catch (err) {
       console.error("Error sending public message:", err);
       set({ error: "Failed to send message. Please try again." });
@@ -335,14 +399,14 @@ const useChatStore = create<ChatState>((set, get) => ({
   },
 
   sendPrivateMessage: async (receiverId: string, message: string) => {
-    const { connection, isConnected, currentUsername } = get();
+    const { isConnected, currentUsername } = get();
 
-    if (!message.trim() || !connection || !isConnected || !receiverId) {
+    if (!message.trim() || !globalConnection || !isConnected || !receiverId) {
       return;
     }
 
     try {
-      await connection.invoke("SendPrivateMessage", receiverId, message);
+      await globalConnection.invoke("SendPrivateMessage", receiverId, message);
 
       // Add the message to our local state since we won't receive it back from the server
       const newMessage: Message = {
@@ -632,7 +696,8 @@ const useChatStore = create<ChatState>((set, get) => ({
         }
       );
 
-      if (response.status !== 200) throw new Error("Failed to mark notification as read");
+      if (response.status !== 200)
+        throw new Error("Failed to mark notification as read");
 
       // Update local state
       set((state) => ({
@@ -694,7 +759,8 @@ const useChatStore = create<ChatState>((set, get) => ({
         }
       );
 
-      if (response.status !== 200) throw new Error("Failed to delete all notifications");
+      if (response.status !== 200)
+        throw new Error("Failed to delete all notifications");
 
       // Clear notifications in local state
       set({

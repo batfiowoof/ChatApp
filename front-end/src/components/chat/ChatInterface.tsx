@@ -12,11 +12,11 @@ import Image from "next/image";
 import Link from "next/link";
 
 export default function ChatInterface() {
-  const { connect, error, selectedUser, users } = useChatStore();
+  const { connect, error, selectedUser, users, isConnected } = useChatStore();
   const router = useRouter();
   const { showLoading, hideLoading } = useLoading();
 
-  // Connect to SignalR hub on component mount
+  // Connect to SignalR hub on component mount if not already connected
   useEffect(() => {
     // Try to get token from cookie first, then localStorage as fallback
     const token = Cookies.get("token") || localStorage.getItem("token");
@@ -26,29 +26,30 @@ export default function ChatInterface() {
       return;
     }
 
-    // Show loading while connecting
-    showLoading("Connecting to chat...");
+    if (!isConnected) {
+      // Only show loading if we actually need to connect
+      showLoading("Connecting to chat...");
 
-    // Connect to the chat hub
-    connect(token)
-      .then(() => {
-        hideLoading();
-      })
-      .catch((err) => {
-        console.error("Failed to connect:", err);
-        hideLoading();
+      // Connect to the chat hub
+      connect(token)
+        .then(() => {
+          hideLoading();
+        })
+        .catch((err) => {
+          console.error("Failed to connect:", err);
+          hideLoading();
 
-        // If we get an unauthorized error, redirect to login
-        if (err instanceof Error && err.message.includes("Unauthorized")) {
-          Cookies.remove("token");
-          localStorage.removeItem("token");
-          router.push("/login");
-        }
-      });
-
+          // If we get an unauthorized error, redirect to login
+          if (err instanceof Error && err.message.includes("Unauthorized")) {
+            Cookies.remove("token");
+            localStorage.removeItem("token");
+            router.push("/login");
+          }
+        });
+    }
     // We don't disconnect on unmount because we want to keep the connection
     // alive in our global store across component changes
-  }, [connect, router, showLoading, hideLoading]);
+  }, [connect, router, showLoading, hideLoading, isConnected]);
 
   // Get the selected user for display
   const selectedUserData = selectedUser
