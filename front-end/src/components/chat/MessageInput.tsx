@@ -8,9 +8,12 @@ export default function MessageInput() {
   const {
     isConnected,
     selectedUser,
+    selectedGroup,
     users,
+    groups,
     sendPublicMessage,
     sendPrivateMessage,
+    sendGroupMessage,
   } = useChatStore();
 
   const handleSend = async () => {
@@ -18,6 +21,8 @@ export default function MessageInput() {
 
     if (selectedUser) {
       await sendPrivateMessage(selectedUser, inputMessage);
+    } else if (selectedGroup) {
+      await sendGroupMessage(selectedGroup, inputMessage);
     } else {
       await sendPublicMessage(inputMessage);
     }
@@ -33,9 +38,15 @@ export default function MessageInput() {
     }
   };
 
-  const selectedUsername = selectedUser
-    ? users.find((u) => u.userId === selectedUser)?.username
-    : null;
+  // Get recipient name for placeholder
+  let recipientName = "everyone";
+  if (selectedUser) {
+    recipientName =
+      users.find((u) => u.userId === selectedUser)?.username || "this user";
+  } else if (selectedGroup) {
+    recipientName =
+      groups.find((g) => g.id === selectedGroup)?.name || "this group";
+  }
 
   return (
     <div className="flex items-center">
@@ -43,7 +54,7 @@ export default function MessageInput() {
         value={inputMessage}
         onChange={(e) => setInputMessage(e.target.value)}
         onKeyDown={handleKeyPress}
-        placeholder={`Type a message to ${selectedUsername || "everyone"}`}
+        placeholder={`Type a message to ${recipientName}`}
         className="input-field flex-grow resize-none h-12 py-2"
         disabled={!isConnected}
       />

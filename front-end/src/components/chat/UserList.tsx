@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import useChatStore from "@/store/useChatStore";
 import Image from "next/image";
 import Link from "next/link";
+import InviteUserToGroupModal from "./InviteUserToGroupModal";
 
 interface UserListProps {
   title?: string;
@@ -15,10 +17,25 @@ export default function UserList({ title = "Online Users" }: UserListProps) {
     setSelectedUser,
     currentUsername,
     usersWithUnreadMessages,
+    groups,
   } = useChatStore();
+
+  // State for invitation modal
+  const [invitingUser, setInvitingUser] = useState<string | null>(null);
+  const [showInviteModal, setShowInviteModal] = useState(false);
 
   // Find the current user's data including profile picture
   const currentUser = users.find((user) => user.username === currentUsername);
+
+  // Check if we have any groups to which we can invite users
+  const hasInvitableGroups = groups.some((group) => group.isMember);
+
+  // Function to handle clicking the invite button
+  const handleInviteClick = (userId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent selecting the user
+    setInvitingUser(userId);
+    setShowInviteModal(true);
+  };
 
   return (
     <div className="w-full h-full bg-white dark:bg-gray-800 rounded-lg shadow-md p-4 overflow-hidden flex flex-col">
@@ -75,15 +92,41 @@ export default function UserList({ title = "Online Users" }: UserListProps) {
                   </Link>
                   <span className="flex-1">{user.username}</span>
 
-                  {/* Show unread message indicator */}
-                  {usersWithUnreadMessages.has(user.userId) && (
-                    <span
-                      className="ml-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center"
-                      title="Unread messages"
-                    >
-                      !
-                    </span>
-                  )}
+                  <div className="flex items-center space-x-1">
+                    {/* Group invitation button */}
+                    {hasInvitableGroups && (
+                      <button
+                        onClick={(e) => handleInviteClick(user.userId, e)}
+                        className="text-primary-600 hover:text-primary-800 p-1 mr-1"
+                        title={`Invite ${user.username} to a group`}
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-4 w-4"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                          />
+                        </svg>
+                      </button>
+                    )}
+
+                    {/* Show unread message indicator */}
+                    {usersWithUnreadMessages.has(user.userId) && (
+                      <span
+                        className="bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center"
+                        title="Unread messages"
+                      >
+                        !
+                      </span>
+                    )}
+                  </div>
                 </button>
               </li>
             ))}
@@ -156,14 +199,53 @@ export default function UserList({ title = "Online Users" }: UserListProps) {
                     </div>
                   </Link>
                   <span className="flex-1">{user.username}</span>
-                  <span className="ml-2 text-xs bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded">
-                    Offline
-                  </span>
+
+                  <div className="flex items-center space-x-1">
+                    {/* Group invitation button - also available for offline users */}
+                    {hasInvitableGroups && (
+                      <button
+                        onClick={(e) => handleInviteClick(user.userId, e)}
+                        className="text-primary-600 hover:text-primary-800 p-1 mr-1"
+                        title={`Invite ${user.username} to a group`}
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-4 w-4"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                          />
+                        </svg>
+                      </button>
+                    )}
+
+                    <span className="text-xs bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded">
+                      Offline
+                    </span>
+                  </div>
                 </button>
               </li>
             ))}
         </ul>
       </div>
+
+      {/* Modal for inviting users to groups */}
+      {invitingUser && (
+        <InviteUserToGroupModal
+          userId={invitingUser}
+          isOpen={showInviteModal}
+          onClose={() => {
+            setShowInviteModal(false);
+            setInvitingUser(null);
+          }}
+        />
+      )}
     </div>
   );
 }

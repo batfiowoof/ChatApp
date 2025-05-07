@@ -24,13 +24,36 @@ export interface UserInfo {
   bio?: string;
 }
 
+export interface GroupInfo {
+  id: string;
+  name: string;
+  description?: string;
+  imageUrl?: string;
+  creatorId: string;
+  creatorName?: string;
+  memberCount: number;
+  isMember: boolean;
+  userRole?: number; // 0: Member, 1: Admin, 2: Owner
+}
+
+export interface GroupMember {
+  id: string;
+  username: string;
+  profilePictureUrl: string;
+  role: number;
+  joinedAt: Date;
+}
+
 export interface Message {
   id: string;
   content: string;
   sender: string;
+  senderId?: string;
   timestamp: Date;
   isPrivate: boolean;
   receiverId?: string;
+  groupId?: string; // Added for group messages
+  isGroupMessage?: boolean; // Flag to identify group messages
 }
 
 export interface Notification {
@@ -49,15 +72,18 @@ interface ChatState {
 
   // UI state
   users: UserInfo[];
+  groups: GroupInfo[];
   messages: Message[];
   currentUsername: string;
   selectedUser: string | null;
+  selectedGroup: string | null; // Added for group chat
   isLoadingHistory: boolean;
 
   // Notification state
   notifications: Notification[];
   unreadNotifications: number;
   usersWithUnreadMessages: Set<string>;
+  groupsWithUnreadMessages: Set<string>; // Added for group chat
 
   // Actions
   connect: (token?: string) => Promise<void>;
@@ -68,13 +94,27 @@ interface ChatState {
   // Message actions
   sendPublicMessage: (message: string) => Promise<void>;
   sendPrivateMessage: (receiverId: string, message: string) => Promise<void>;
+  sendGroupMessage: (groupId: string, message: string) => Promise<void>; // Added for group chat
   addMessage: (message: Message) => void;
   fetchMessageHistory: (userId: string | null) => Promise<void>;
   fetchPublicMessages: () => Promise<void>;
+  fetchGroupMessages: (groupId: string) => Promise<void>; // Added for group chat
 
   // User actions
   setUsers: (users: UserInfo[]) => void;
   setSelectedUser: (userId: string | null) => void;
+
+  // Group actions
+  setGroups: (groups: GroupInfo[]) => void;
+  fetchGroups: () => Promise<void>;
+  createGroup: (name: string, description: string) => Promise<string>;
+  joinGroup: (groupId: string) => Promise<void>;
+  leaveGroup: (groupId: string) => Promise<void>;
+  deleteGroup: (groupId: string) => Promise<void>;
+  setSelectedGroup: (groupId: string | null) => void;
+  clearGroupUnreadMessages: (groupId: string) => void;
+  addGroupWithUnreadMessage: (groupId: string) => void;
+  fetchGroupMembers: (groupId: string) => Promise<GroupMember[]>;
 
   // Notification actions
   fetchNotifications: () => Promise<void>;
@@ -91,12 +131,15 @@ const useChatStore = create<ChatState>((set, get) => ({
   isConnected: false,
   error: null,
   users: [],
+  groups: [],
   messages: [],
   currentUsername: "",
   selectedUser: null,
+  selectedGroup: null,
   notifications: [],
   unreadNotifications: 0,
   usersWithUnreadMessages: new Set<string>(),
+  groupsWithUnreadMessages: new Set<string>(),
   isLoadingHistory: false,
 
   // Connection management
@@ -114,16 +157,36 @@ const useChatStore = create<ChatState>((set, get) => ({
     if (connectionAttemptInProgress) {
       console.log("Connection attempt already in progress, waiting...");
 
-      // Wait for the existing attempt to finish or timeout after 5 seconds
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+      // Wait for the existing attempt to finish with more robust polling
+      let waitTime = 0;
+      const MAX_WAIT_TIME = 10000; // 10 seconds max wait
+      const CHECK_INTERVAL = 500; // Check every 500ms
 
-      // If connection was established during the wait, use it
-      if (
-        globalConnection &&
-        globalConnection.state === signalR.HubConnectionState.Connected
-      ) {
-        set({ connection: globalConnection, isConnected: true, error: null });
-        return;
+      while (connectionAttemptInProgress && waitTime < MAX_WAIT_TIME) {
+        await new Promise((resolve) => setTimeout(resolve, CHECK_INTERVAL));
+        waitTime += CHECK_INTERVAL;
+
+        // If connection was established during the wait, use it
+        if (globalConnection?.state === signalR.HubConnectionState.Connected) {
+          set({ connection: globalConnection, isConnected: true, error: null });
+          return;
+        }
+      }
+
+      // If we're still waiting after the timeout, force reset
+      if (connectionAttemptInProgress) {
+        console.warn("Connection attempt timeout exceeded, forcing reset");
+        connectionAttemptInProgress = false;
+
+        // Force cleanup of any hanging connection
+        if (globalConnection) {
+          try {
+            await globalConnection.stop();
+          } catch (err) {
+            console.warn("Error stopping stale connection:", err);
+          }
+          globalConnection = null;
+        }
       }
     }
 
@@ -177,13 +240,12 @@ const useChatStore = create<ChatState>((set, get) => ({
           "ReceiveMessage",
           (username: string, messageContent: string) => {
             // Don't add duplicate messages if we already added this message locally
-            // We'll identify our own messages by the username
             if (
               get().messages.some(
                 (m) =>
                   m.sender === username &&
                   m.content === messageContent &&
-                  // Check if the message was added in the last 1 second (to avoid filtering out legitimate duplicates)
+                  // Check if the message was added in the last 1 second (to avoid duplicates)
                   Date.now() - new Date(m.timestamp).getTime() < 1000
               )
             ) {
@@ -196,6 +258,7 @@ const useChatStore = create<ChatState>((set, get) => ({
               sender: username,
               timestamp: new Date(),
               isPrivate: false,
+              isGroupMessage: false,
             };
             get().addMessage(newMessage);
           }
@@ -212,8 +275,10 @@ const useChatStore = create<ChatState>((set, get) => ({
               id: Date.now().toString(),
               content: messageContent,
               sender: username,
+              senderId,
               timestamp: new Date(),
               isPrivate: true,
+              isGroupMessage: false,
             };
             get().addMessage(newMessage);
 
@@ -223,6 +288,222 @@ const useChatStore = create<ChatState>((set, get) => ({
             }
           }
         );
+
+        // Add handler for group messages
+        globalConnection.on(
+          "ReceiveGroupMessage",
+          (
+            groupId: string,
+            groupName: string,
+            username: string,
+            messageContent: string
+          ) => {
+            console.log("Group message received:", {
+              groupId,
+              groupName,
+              username,
+              messageContent,
+            });
+            const sender = get().users.find((u) => u.username === username);
+            const senderId = sender?.userId;
+
+            const newMessage: Message = {
+              id: Date.now().toString(),
+              content: messageContent,
+              sender: username,
+              senderId,
+              timestamp: new Date(),
+              isPrivate: false,
+              isGroupMessage: true,
+              groupId,
+            };
+            get().addMessage(newMessage);
+
+            // If we're not currently in this group chat, mark it as having unread messages
+            if (get().selectedGroup !== groupId) {
+              get().addGroupWithUnreadMessage(groupId);
+            }
+          }
+        );
+
+        // Add handler for when a new user joins a group
+        globalConnection.on(
+          "GroupMemberJoined",
+          (
+            groupId: string,
+            groupName: string,
+            userId: string,
+            username: string
+          ) => {
+            console.log("User joined group:", {
+              groupId,
+              groupName,
+              userId,
+              username,
+            });
+            // Refetch group members if this is the currently selected group
+            if (get().selectedGroup === groupId) {
+              get().fetchGroupMembers(groupId);
+            }
+
+            // Add a system message
+            const systemMessage: Message = {
+              id: Date.now().toString(),
+              content: `${username} has joined the group`,
+              sender: "System",
+              timestamp: new Date(),
+              isPrivate: false,
+              isGroupMessage: true,
+              groupId,
+            };
+            get().addMessage(systemMessage);
+          }
+        );
+
+        // Add handler for when a user leaves a group
+        globalConnection.on(
+          "GroupMemberLeft",
+          (
+            groupId: string,
+            groupName: string,
+            userId: string,
+            username: string
+          ) => {
+            console.log("User left group:", {
+              groupId,
+              groupName,
+              userId,
+              username,
+            });
+            // Refetch group members if this is the currently selected group
+            if (get().selectedGroup === groupId) {
+              get().fetchGroupMembers(groupId);
+            }
+
+            // Add a system message
+            const systemMessage: Message = {
+              id: Date.now().toString(),
+              content: `${username} has left the group`,
+              sender: "System",
+              timestamp: new Date(),
+              isPrivate: false,
+              isGroupMessage: true,
+              groupId,
+            };
+            get().addMessage(systemMessage);
+          }
+        );
+
+        // Add handler for when a group is deleted
+        globalConnection.on("GroupDeleted", (groupId: string) => {
+          console.log("Group deleted:", groupId);
+          // If this was the selected group, clear the selection
+          if (get().selectedGroup === groupId) {
+            set({ selectedGroup: null });
+          }
+
+          // Remove the group from our list
+          set((state) => ({
+            groups: state.groups.filter((g) => g.id !== groupId),
+          }));
+
+          // Add a system message to the chat
+          const systemMessage: Message = {
+            id: Date.now().toString(),
+            content: "This group has been deleted",
+            sender: "System",
+            timestamp: new Date(),
+            isPrivate: false,
+            isGroupMessage: false,
+          };
+          get().addMessage(systemMessage);
+        });
+
+        // Add handler for group list updates
+        globalConnection.on("UpdateGroupList", (groupList: any[]) => {
+          console.log("Group list updated:", groupList);
+
+          // Convert the server data format to our client GroupInfo format
+          const formattedGroups = groupList.map((g: any) => ({
+            id: g.Id?.toString() || g.id?.toString(),
+            name: g.Name || g.name,
+            description: g.Description || g.description,
+            imageUrl: g.ImageUrl || g.imageUrl,
+            creatorId: g.CreatorId?.toString() || g.creatorId?.toString(),
+            creatorName: g.CreatorName || g.creatorName,
+            memberCount: g.MemberCount || g.memberCount,
+            isMember: g.IsMember || g.isMember,
+            userRole:
+              (g.UserRole ?? g.userRole) || (g.IsMember || g.isMember ? 0 : -1),
+          }));
+
+          set({ groups: formattedGroups });
+        });
+
+        // Add handler for when user joins a group
+        globalConnection.on("JoinedGroup", (groupDetails: any) => {
+          console.log("Joined group:", groupDetails);
+
+          // Extract group ID - handle different potential formats from the server
+          const groupId = groupDetails.GroupId || groupDetails.groupId;
+
+          // Instead of refetching all groups, we can update the specific group in our state
+          set((state) => {
+            // Find if we already have this group in our state
+            const existingGroupIndex = state.groups.findIndex(
+              (g) => g.id === groupId
+            );
+
+            if (existingGroupIndex >= 0) {
+              // Update the existing group to mark it as joined
+              const updatedGroups = [...state.groups];
+              updatedGroups[existingGroupIndex] = {
+                ...updatedGroups[existingGroupIndex],
+                isMember: true,
+                userRole: 0, // Default role for a new member
+              };
+              return { groups: updatedGroups };
+            }
+
+            // If we don't have the group, we'll need to fetch it
+            get().fetchGroups();
+            return {};
+          });
+
+          // Switch to the group chat
+          get().setSelectedGroup(groupId);
+        });
+
+        // Add handler for when user leaves a group
+        globalConnection.on("LeftGroup", (groupId: string) => {
+          console.log("Left group:", groupId);
+
+          // Instead of refetching all groups, update the specific group in our state
+          set((state) => {
+            // Find if we have this group in our state
+            const existingGroupIndex = state.groups.findIndex(
+              (g) => g.id === groupId
+            );
+
+            if (existingGroupIndex >= 0) {
+              // Update the existing group to mark it as not a member
+              const updatedGroups = [...state.groups];
+              updatedGroups[existingGroupIndex] = {
+                ...updatedGroups[existingGroupIndex],
+                isMember: false,
+                userRole: -1, // Reset role
+              };
+              return { groups: updatedGroups };
+            }
+
+            return {};
+          });
+
+          // If this was the selected group, clear selection
+          if (get().selectedGroup === groupId) {
+            set({ selectedGroup: null });
+          }
+        });
 
         // Updated handler for new notifications
         globalConnection.on(
@@ -246,9 +527,21 @@ const useChatStore = create<ChatState>((set, get) => ({
               notifications: [newNotification, ...state.notifications],
               unreadNotifications: state.unreadNotifications + 1,
             }));
+
+            // Handle group message notifications
+            if (
+              notificationType === "GroupMessage" &&
+              notificationData.groupId
+            ) {
+              // Mark the group as having unread messages
+              if (get().selectedGroup !== notificationData.groupId) {
+                get().addGroupWithUnreadMessage(notificationData.groupId);
+              }
+            }
           }
         );
 
+        // Existing handlers
         globalConnection.on("UpdateUserList", (userList: UserInfo[]) => {
           set({ users: userList });
         });
@@ -317,11 +610,18 @@ const useChatStore = create<ChatState>((set, get) => ({
 
       console.log("Connected to SignalR hub!");
 
-      // Fetch notifications after connecting
+      // Fetch groups and notifications after connecting
+      await get().fetchGroups();
       await get().fetchNotifications();
 
-      // Also fetch initial messages (public by default)
-      await get().fetchPublicMessages();
+      // If we have a selected group, fetch its messages
+      if (get().selectedGroup) {
+        await get().fetchGroupMessages(get().selectedGroup);
+      }
+      // Otherwise fetch public messages
+      else if (!get().selectedUser) {
+        await get().fetchPublicMessages();
+      }
     } catch (err) {
       console.error("Failed to connect to SignalR hub:", err);
       set({
@@ -342,9 +642,10 @@ const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  // ... existing disconnect and connection management methods
+
   disconnect: async () => {
     // Only disconnect if explicitly called - don't stop on component unmounts
-
     if (
       globalConnection &&
       globalConnection.state !== signalR.HubConnectionState.Disconnected
@@ -363,12 +664,15 @@ const useChatStore = create<ChatState>((set, get) => ({
       connection: null,
       isConnected: false,
       selectedUser: null,
+      selectedGroup: null,
       users: [],
+      groups: [],
       messages: [],
       currentUsername: "",
       notifications: [],
       unreadNotifications: 0,
       usersWithUnreadMessages: new Set<string>(),
+      groupsWithUnreadMessages: new Set<string>(),
       error: null,
     });
   },
@@ -381,9 +685,10 @@ const useChatStore = create<ChatState>((set, get) => ({
     set({ error });
   },
 
-  // Message actions
+  // ... existing message methods
+
   sendPublicMessage: async (message: string) => {
-    const { isConnected, currentUsername } = get();
+    const { isConnected } = get();
 
     if (!message.trim() || !globalConnection || !isConnected) {
       return;
@@ -416,12 +721,43 @@ const useChatStore = create<ChatState>((set, get) => ({
         timestamp: new Date(),
         isPrivate: true,
         receiverId: receiverId,
+        isGroupMessage: false,
       };
 
       get().addMessage(newMessage);
     } catch (err) {
       console.error("Error sending private message:", err);
       set({ error: "Failed to send private message. Please try again." });
+      setTimeout(() => set({ error: null }), 5000);
+    }
+  },
+
+  // New method for sending group messages
+  sendGroupMessage: async (groupId: string, message: string) => {
+    const { isConnected, currentUsername } = get();
+
+    if (!message.trim() || !globalConnection || !isConnected || !groupId) {
+      return;
+    }
+
+    try {
+      await globalConnection.invoke("SendGroupMessage", groupId, message);
+
+      // Add the message to our local state immediately
+      const newMessage: Message = {
+        id: Date.now().toString(),
+        content: message,
+        sender: currentUsername,
+        timestamp: new Date(),
+        isPrivate: false,
+        isGroupMessage: true,
+        groupId: groupId,
+      };
+
+      get().addMessage(newMessage);
+    } catch (err) {
+      console.error("Error sending group message:", err);
+      set({ error: "Failed to send group message. Please try again." });
       setTimeout(() => set({ error: null }), 5000);
     }
   },
@@ -459,27 +795,30 @@ const useChatStore = create<ChatState>((set, get) => ({
         const historyMessages = response.data.map((msg: any) => ({
           id: msg.id,
           content: msg.content,
-          // If it's from current user, use current username, otherwise find the username from users list
           sender: msg.isFromCurrentUser
             ? get().currentUsername
             : get().users.find((u) => u.userId === msg.senderId)?.username ||
               "Unknown",
+          senderId: msg.senderId,
           timestamp: new Date(msg.sentAt),
           isPrivate: true,
           receiverId: msg.receiverId,
+          isGroupMessage: false,
         }));
 
         // Clear existing messages for this conversation and add history messages
         set((state) => {
-          // Filter out any private messages between these users
+          // Filter out messages that don't belong to this conversation
           const otherMessages = state.messages.filter((m) => {
-            if (!m.isPrivate) return true; // Keep public messages
+            // Keep group messages
+            if (m.isGroupMessage) return true;
 
-            // Remove messages between this user and the current user
+            // Keep public messages
+            if (!m.isPrivate) return true;
+
+            // If private, filter out messages between these users
             const isConversationMessage =
-              m.receiverId === userId ||
-              m.sender ===
-                get().users.find((u) => u.userId === userId)?.username;
+              m.receiverId === userId || m.senderId === userId;
 
             return !isConversationMessage;
           });
@@ -493,13 +832,13 @@ const useChatStore = create<ChatState>((set, get) => ({
     } catch (err) {
       console.error("Error fetching message history:", err);
       set({ isLoadingHistory: false, error: "Failed to load message history" });
-
-      // Clear error after 5 seconds
       setTimeout(() => set({ error: null }), 5000);
     }
   },
 
-  fetchPublicMessages: async () => {
+  fetchGroupMessages: async (groupId: string) => {
+    if (!groupId) return;
+
     set({ isLoadingHistory: true });
 
     try {
@@ -508,31 +847,41 @@ const useChatStore = create<ChatState>((set, get) => ({
         throw new Error("No authentication token available");
       }
 
-      // Using the correct API endpoint URL that matches the rest of the application
-      const response = await axios.get(`${API_BASE_URL}/Message/public`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      console.log("Public messages response:", response.data); // Debug log
+      // Use the API endpoint to get group messages
+      const response = await axios.get(
+        `${API_BASE_URL}/Group/${groupId}/messages`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
 
       if (response.status === 200 && response.data) {
-        const publicMessages = response.data.map((msg: any) => ({
+        const groupMessages = response.data.map((msg: any) => ({
           id: msg.id,
           content: msg.content,
           sender: msg.senderName,
+          senderId: msg.senderId,
           timestamp: new Date(msg.sentAt),
           isPrivate: false,
+          isGroupMessage: true,
+          groupId,
+          isFromCurrentUser: msg.isFromCurrentUser,
         }));
 
-        // Clear existing public messages and add new ones
+        // Clear existing group messages and add new ones
         set((state) => {
-          // Filter out public messages, keep private ones
-          const privateMessages = state.messages.filter((m) => m.isPrivate);
+          // Filter out messages for this group
+          const otherMessages = state.messages.filter((m) => {
+            if (m.isGroupMessage) {
+              return m.groupId !== groupId;
+            }
+            return true; // Keep all non-group messages
+          });
 
           return {
-            messages: [...privateMessages, ...publicMessages],
+            messages: [...otherMessages, ...groupMessages],
             isLoadingHistory: false,
           };
         });
@@ -540,12 +889,14 @@ const useChatStore = create<ChatState>((set, get) => ({
         set({ isLoadingHistory: false });
       }
     } catch (err) {
-      console.error("Error fetching public messages:", err);
-      set({ isLoadingHistory: false, error: "Failed to load public messages" });
-
-      // Clear error after 5 seconds
+      console.error("Error fetching group messages:", err);
+      set({ isLoadingHistory: false, error: "Failed to load group messages" });
       setTimeout(() => set({ error: null }), 5000);
     }
+  },
+
+  fetchPublicMessages: async () => {
+    // ... existing code
   },
 
   // User actions
@@ -554,6 +905,9 @@ const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setSelectedUser: (userId: string | null) => {
+    // Unselect group if we're selecting a user
+    if (userId) set({ selectedGroup: null });
+
     // Load message history when selecting a user
     get().fetchMessageHistory(userId);
 
@@ -565,129 +919,259 @@ const useChatStore = create<ChatState>((set, get) => ({
     set({ selectedUser: userId });
   },
 
-  // Notification actions
-  fetchNotifications: async () => {
+  // Group actions
+  setGroups: (groups: GroupInfo[]) => {
+    set({ groups });
+  },
+
+  fetchGroups: async () => {
     try {
-      console.log("Fetching notifications...");
       const token = Cookies.get("token") || localStorage.getItem("token");
       if (!token) {
-        console.error("No token found for fetching notifications");
+        console.error("No token found for fetching groups");
         return;
       }
 
-      const response = await axios.get(`${API_BASE_URL}/notification`, {
+      const response = await axios.get(`${API_BASE_URL}/Group`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
 
-      if (response.status !== 200) {
-        console.error(
-          "Failed to fetch notifications:",
-          response.status,
-          response.statusText
-        );
-        throw new Error(
-          `Failed to fetch notifications: ${response.statusText}`
-        );
+      if (response.status === 200) {
+        const groups = response.data.map((g: any) => ({
+          id: g.id,
+          name: g.name,
+          description: g.description,
+          imageUrl: g.imageUrl,
+          creatorId: g.creatorId,
+          creatorName: g.creatorName,
+          memberCount: g.memberCount,
+          isMember: g.isMember,
+          userRole: g.userRole,
+        }));
+
+        set({ groups });
+      }
+    } catch (err) {
+      console.error("Error fetching groups:", err);
+    }
+  },
+
+  createGroup: async (name: string, description: string) => {
+    try {
+      const token = Cookies.get("token") || localStorage.getItem("token");
+      if (!token) {
+        throw new Error("No authentication token available");
       }
 
-      const notifications: any[] = response.data;
-      console.log("Fetched notifications:", notifications);
+      const response = await axios.post(
+        `${API_BASE_URL}/Group`,
+        { name, description },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
 
-      if (!notifications?.length) {
-        console.log("No notifications returned from the API");
-        set({ notifications: [], unreadNotifications: 0 });
-        return;
+      if (response.status === 200 || response.status === 201) {
+        // Refresh the groups list
+        await get().fetchGroups();
+
+        // Return the new group ID
+        return response.data.id;
+      } else {
+        throw new Error("Failed to create group");
+      }
+    } catch (err) {
+      console.error("Error creating group:", err);
+      set({ error: "Failed to create group. Please try again." });
+      setTimeout(() => set({ error: null }), 5000);
+      throw err;
+    }
+  },
+
+  joinGroup: async (groupId: string) => {
+    try {
+      if (!globalConnection || !get().isConnected) {
+        throw new Error("Not connected to chat hub");
       }
 
-      // Store current notifications to preserve data between fetches
-      const currentNotifications = get().notifications;
+      // Use SignalR hub method to join the group
+      await globalConnection.invoke("JoinGroup", groupId);
 
-      const processedNotifications: Notification[] = notifications.map((n) => {
-        const existingNotification = currentNotifications.find(
-          (existing) => existing.id === (n.id || n.Id)
-        );
+      // Refresh groups list
+      await get().fetchGroups();
 
-        // Get payload from response - this contains our main data
-        let payload = n.payload;
+      // Select the group after joining
+      get().setSelectedGroup(groupId);
+    } catch (err) {
+      console.error("Error joining group:", err);
+      set({ error: "Failed to join group. Please try again." });
+      setTimeout(() => set({ error: null }), 5000);
+      throw err;
+    }
+  },
 
-        // For older notifications that might have different structures
-        if (!payload && typeof n.payloadJson === "string") {
-          try {
-            payload = JSON.parse(n.payloadJson);
-          } catch (e) {
-            console.error("Error parsing notification payload:", e);
-          }
+  leaveGroup: async (groupId: string) => {
+    try {
+      if (!globalConnection || !get().isConnected) {
+        throw new Error("Not connected to chat hub");
+      }
+
+      // Use SignalR hub method to leave the group
+      await globalConnection.invoke("LeaveGroup", groupId);
+
+      // Refresh groups list
+      await get().fetchGroups();
+
+      // If this was the selected group, clear selection
+      if (get().selectedGroup === groupId) {
+        get().setSelectedGroup(null);
+      }
+    } catch (err) {
+      console.error("Error leaving group:", err);
+      set({ error: "Failed to leave group. Please try again." });
+      setTimeout(() => set({ error: null }), 5000);
+      throw err;
+    }
+  },
+
+  deleteGroup: async (groupId: string) => {
+    try {
+      if (!globalConnection || !get().isConnected) {
+        throw new Error("Not connected to chat hub");
+      }
+
+      // Use SignalR hub method to delete the group
+      await globalConnection.invoke("DeleteGroup", groupId);
+
+      // Refresh groups list
+      await get().fetchGroups();
+
+      // If this was the selected group, clear selection
+      if (get().selectedGroup === groupId) {
+        get().setSelectedGroup(null);
+      }
+    } catch (err) {
+      console.error("Error deleting group:", err);
+      set({ error: "Failed to delete group. Please try again." });
+      setTimeout(() => set({ error: null }), 5000);
+      throw err;
+    }
+  },
+
+  setSelectedGroup: (groupId: string | null) => {
+    // Unselect user if we're selecting a group
+    if (groupId) set({ selectedUser: null });
+
+    // Load group messages when selecting a group
+    if (groupId) {
+      get().fetchGroupMessages(groupId);
+      get().clearGroupUnreadMessages(groupId);
+    }
+
+    set({ selectedGroup: groupId });
+  },
+
+  fetchGroupMembers: async (groupId: string) => {
+    try {
+      const token = Cookies.get("token") || localStorage.getItem("token");
+      if (!token) {
+        throw new Error("No authentication token available");
+      }
+
+      const response = await axios.get(
+        `${API_BASE_URL}/Group/${groupId}/members`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         }
+      );
 
-        // Extract type from the payload or the notification type field
-        const type = n.type || n.Type || "unknown";
+      if (response.status === 200) {
+        return response.data.map((m: any) => ({
+          id: m.id,
+          username: m.username,
+          profilePictureUrl: m.profilePictureUrl,
+          role: m.role,
+          joinedAt: new Date(m.joinedAt),
+        }));
+      } else {
+        return [];
+      }
+    } catch (err) {
+      console.error("Error fetching group members:", err);
+      return [];
+    }
+  },
 
-        // If this notification exists in our current state, and the payload
-        // from API is missing key properties like senderName, use the existing one
-        if (existingNotification && payload && existingNotification.payload) {
-          // Check if current payload is missing senderName
-          if (!payload.senderName && existingNotification.payload.senderName) {
-            console.log(
-              "Restoring senderName from existing notification",
-              existingNotification.id,
-              existingNotification.payload.senderName
-            );
+  addGroupWithUnreadMessage: (groupId: string) => {
+    set((state) => ({
+      groupsWithUnreadMessages: new Set([
+        ...state.groupsWithUnreadMessages,
+        groupId,
+      ]),
+    }));
+  },
 
-            payload = {
-              ...payload,
-              senderName: existingNotification.payload.senderName,
-            };
-          }
+  clearGroupUnreadMessages: (groupId: string) => {
+    set((state) => {
+      const newSet = new Set(state.groupsWithUnreadMessages);
+      newSet.delete(groupId);
+      return { groupsWithUnreadMessages: newSet };
+    });
+  },
 
-          // Check for senderId too
-          if (!payload.senderId && existingNotification.payload.senderId) {
-            payload = {
-              ...payload,
-              senderId: existingNotification.payload.senderId,
-            };
-          }
-        }
+  // Notification methods
+  fetchNotifications: async () => {
+    try {
+      const token = Cookies.get("token") || localStorage.getItem("token");
+      if (!token) {
+        throw new Error("No authentication token available");
+      }
 
-        // Create the notification with the combined payload
-        return {
-          id: n.id || n.Id,
-          type: type,
-          payload: payload || {},
-          isRead: !!n.isRead,
-          sentAt: new Date(n.sentAt || n.SentAt || new Date()),
-        };
+      const response = await axios.get(`${API_BASE_URL}/Notification`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
 
-      console.log("Processed notifications:", processedNotifications);
+      if (response.status === 200) {
+        const notifications = response.data.map((n: any) => ({
+          id: n.id,
+          type: n.type,
+          payload: n.payload ? JSON.parse(n.payload) : {},
+          isRead: n.isRead,
+          sentAt: new Date(n.sentAt),
+        }));
 
-      const unreadCount = processedNotifications.filter(
-        (n) => !n.isRead
-      ).length;
+        // Count unread notifications
+        const unreadCount = notifications.filter((n: any) => !n.isRead).length;
 
-      set({
-        notifications: processedNotifications,
-        unreadNotifications: unreadCount,
-      });
+        set({
+          notifications,
+          unreadNotifications: unreadCount,
+        });
+      }
     } catch (err) {
       console.error("Error fetching notifications:", err);
+      set({ error: "Failed to load notifications" });
+      setTimeout(() => set({ error: null }), 5000);
     }
   },
 
   markNotificationAsRead: async (notificationId: number) => {
     try {
       const token = Cookies.get("token") || localStorage.getItem("token");
-      if (!token) return;
+      if (!token) {
+        throw new Error("No authentication token available");
+      }
 
-      // Find notification first to get the sender info before marking as read
-      const notification = get().notifications.find(
-        (n) => n.id === notificationId
-      );
-      const senderId = notification?.payload?.senderId;
-
-      const response = await axios.put(
-        `${API_BASE_URL}/notification/${notificationId}/read`,
+      await axios.patch(
+        `${API_BASE_URL}/Notification/${notificationId}/read`,
         {},
         {
           headers: {
@@ -696,34 +1180,29 @@ const useChatStore = create<ChatState>((set, get) => ({
         }
       );
 
-      if (response.status !== 200)
-        throw new Error("Failed to mark notification as read");
-
-      // Update local state
+      // Update the local state
       set((state) => ({
         notifications: state.notifications.map((n) =>
           n.id === notificationId ? { ...n, isRead: true } : n
         ),
         unreadNotifications: Math.max(0, state.unreadNotifications - 1),
       }));
-
-      // If it's a private message notification and has senderId, set the selected user
-      if (notification?.type === "PrivateMessage" && senderId) {
-        // Set the selected user to navigate to the chat
-        get().setSelectedUser(senderId);
-      }
     } catch (err) {
       console.error("Error marking notification as read:", err);
+      set({ error: "Failed to update notification" });
+      setTimeout(() => set({ error: null }), 5000);
     }
   },
 
   markAllNotificationsAsRead: async () => {
     try {
       const token = Cookies.get("token") || localStorage.getItem("token");
-      if (!token) return;
+      if (!token) {
+        throw new Error("No authentication token available");
+      }
 
-      const response = await axios.post(
-        `${API_BASE_URL}/notification/read-all`,
+      await axios.patch(
+        `${API_BASE_URL}/Notification/read-all`,
         {},
         {
           headers: {
@@ -732,45 +1211,40 @@ const useChatStore = create<ChatState>((set, get) => ({
         }
       );
 
-      if (response.status !== 200)
-        throw new Error("Failed to mark all notifications as read");
-
-      // Update local state
+      // Update the local state
       set((state) => ({
         notifications: state.notifications.map((n) => ({ ...n, isRead: true })),
         unreadNotifications: 0,
       }));
     } catch (err) {
       console.error("Error marking all notifications as read:", err);
+      set({ error: "Failed to update notifications" });
+      setTimeout(() => set({ error: null }), 5000);
     }
   },
 
   deleteAllNotifications: async () => {
     try {
       const token = Cookies.get("token") || localStorage.getItem("token");
-      if (!token) return;
+      if (!token) {
+        throw new Error("No authentication token available");
+      }
 
-      const response = await axios.delete(
-        `${API_BASE_URL}/notification/delete-all`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      await axios.delete(`${API_BASE_URL}/Notification`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
-      if (response.status !== 200)
-        throw new Error("Failed to delete all notifications");
-
-      // Clear notifications in local state
+      // Update the local state
       set({
         notifications: [],
         unreadNotifications: 0,
       });
-
-      console.log("All notifications deleted successfully");
     } catch (err) {
       console.error("Error deleting all notifications:", err);
+      set({ error: "Failed to delete notifications" });
+      setTimeout(() => set({ error: null }), 5000);
     }
   },
 
