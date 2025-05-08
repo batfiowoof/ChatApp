@@ -61,9 +61,9 @@ export default function UserList({ title = "Online Users" }: UserListProps) {
             )
             .map((user) => (
               <li key={user.userId}>
-                <button
+                <div
                   onClick={() => setSelectedUser(user.userId)}
-                  className={`w-full text-left px-3 py-2 rounded-md transition-colors flex items-center ${
+                  className={`w-full text-left px-3 py-2 rounded-md transition-colors flex items-center cursor-pointer ${
                     selectedUser === user.userId
                       ? "bg-primary-100 dark:bg-primary-900 text-primary-800 dark:text-primary-200"
                       : "hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -95,9 +95,9 @@ export default function UserList({ title = "Online Users" }: UserListProps) {
                   <div className="flex items-center space-x-1">
                     {/* Group invitation button */}
                     {hasInvitableGroups && (
-                      <button
+                      <div
                         onClick={(e) => handleInviteClick(user.userId, e)}
-                        className="text-primary-600 hover:text-primary-800 p-1 mr-1"
+                        className="text-primary-600 hover:text-primary-800 p-1 mr-1 cursor-pointer"
                         title={`Invite ${user.username} to a group`}
                       >
                         <svg
@@ -114,7 +114,7 @@ export default function UserList({ title = "Online Users" }: UserListProps) {
                             d="M12 6v6m0 0v6m0-6h6m-6 0H6"
                           />
                         </svg>
-                      </button>
+                      </div>
                     )}
 
                     {/* Show unread message indicator */}
@@ -127,7 +127,7 @@ export default function UserList({ title = "Online Users" }: UserListProps) {
                       </span>
                     )}
                   </div>
-                </button>
+                </div>
               </li>
             ))}
           {/* Show current user with different styling */}
@@ -173,9 +173,9 @@ export default function UserList({ title = "Online Users" }: UserListProps) {
             )
             .map((user) => (
               <li key={user.userId} className="px-3 py-2 text-gray-500">
-                <button
+                <div
                   onClick={() => setSelectedUser(user.userId)}
-                  className={`w-full text-left px-3 py-2 rounded-md transition-colors flex items-center ${
+                  className={`w-full text-left px-3 py-2 rounded-md transition-colors flex items-center cursor-pointer ${
                     selectedUser === user.userId
                       ? "bg-primary-100 dark:bg-primary-900 text-primary-800 dark:text-primary-200"
                       : "hover:bg-gray-100 dark:hover:bg-gray-700"
@@ -203,9 +203,9 @@ export default function UserList({ title = "Online Users" }: UserListProps) {
                   <div className="flex items-center space-x-1">
                     {/* Group invitation button - also available for offline users */}
                     {hasInvitableGroups && (
-                      <button
+                      <div
                         onClick={(e) => handleInviteClick(user.userId, e)}
-                        className="text-primary-600 hover:text-primary-800 p-1 mr-1"
+                        className="text-primary-600 hover:text-primary-800 p-1 mr-1 cursor-pointer"
                         title={`Invite ${user.username} to a group`}
                       >
                         <svg
@@ -222,14 +222,14 @@ export default function UserList({ title = "Online Users" }: UserListProps) {
                             d="M12 6v6m0 0v6m0-6h6m-6 0H6"
                           />
                         </svg>
-                      </button>
+                      </div>
                     )}
 
                     <span className="text-xs bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded">
                       Offline
                     </span>
                   </div>
-                </button>
+                </div>
               </li>
             ))}
         </ul>
