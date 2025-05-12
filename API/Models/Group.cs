@@ -24,6 +24,9 @@ public class Group
     
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     
+    // Determines if the group is private (invite-only) or public
+    public bool IsPrivate { get; set; } = false;
+    
     // Navigation property for group members
     public ICollection<GroupMember> Members { get; set; } = new List<GroupMember>();
 }

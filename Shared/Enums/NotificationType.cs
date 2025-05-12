@@ -6,5 +6,6 @@ public enum NotificationType
     GroupMessage,
     GroupInvite,
     GroupJoinRequest,
-    MissedMessages
+    MissedMessages,
+    GroupRemoval
 }

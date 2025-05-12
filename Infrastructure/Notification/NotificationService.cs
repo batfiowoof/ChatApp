@@ -71,8 +71,7 @@ public class NotificationService : INotificationService
         
         _logger.LogInformation("Marked notification {id} as read for user {userId}", notificationId, userId);
     }
-    
-    public async Task<IEnumerable<API.Models.Notification>> GetForUserAsync(Guid userId)
+      public async Task<IEnumerable<API.Models.Notification>> GetForUserAsync(Guid userId)
     {
         _logger.LogInformation("Fetching notifications for user {userId}", userId);
         
@@ -82,6 +81,20 @@ public class NotificationService : INotificationService
             .ToListAsync();
             
         _logger.LogInformation("Found {count} notifications for user {userId}", notifications.Count, userId);
+        
+        return notifications;
+    }
+    
+    public async Task<IEnumerable<API.Models.Notification>> GetUnreadForUserAsync(Guid userId)
+    {
+        _logger.LogInformation("Fetching unread notifications for user {userId}", userId);
+        
+        var notifications = await _db.Notifications
+            .Where(n => n.ReceiverId == userId && !n.IsRead)
+            .OrderByDescending(n => n.SentAt)
+            .ToListAsync();
+            
+        _logger.LogInformation("Found {count} unread notifications for user {userId}", notifications.Count, userId);
         
         return notifications;
     }

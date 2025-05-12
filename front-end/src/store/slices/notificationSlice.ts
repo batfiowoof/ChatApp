@@ -31,22 +31,52 @@ export const createNotificationSlice: StateCreator<
     try {
       const token = Cookies.get("token") || localStorage.getItem("token");
       if (!token) {
-        throw new Error("No authentication token available");
+        console.warn(
+          "No authentication token available for fetching notifications"
+        );
+        set({ notifications: [], unreadNotifications: 0 });
+        return;
       }
 
-      const response = await axios.get(`${API_BASE_URL}/Notification`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      // Add a retry mechanism for handling transient issues
+      let retryCount = 0;
+      const maxRetries = 2;
+      let response;
 
-      if (response.status === 200) {
+      while (retryCount <= maxRetries) {
+        try {
+          response = await axios.get(`${API_BASE_URL}/Notification`, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+          break; // If successful, exit the retry loop
+        } catch (err) {
+          retryCount++;
+          if (retryCount > maxRetries) throw err;
+          await new Promise((resolve) =>
+            setTimeout(resolve, 1000 * retryCount)
+          ); // Exponential backoff
+        }
+      }
+
+      if (response && response.status === 200) {
+        // Handle empty response gracefully
+        if (!response.data || !Array.isArray(response.data)) {
+          console.warn(
+            "Received unexpected notifications data format",
+            response.data
+          );
+          set({ notifications: [], unreadNotifications: 0 });
+          return;
+        }
+
         const notifications = response.data.map((n: any) => ({
           id: n.id,
-          type: n.type,
-          // Handle payload properly - it's already an object in the response
-          payload: n.payload || {},
-          isRead: n.isRead,
+          type: n.type || "unknown",
+          // Handle payload properly with fallbacks
+          payload: n.payload || n.payloadJson || {},
+          isRead: Boolean(n.isRead),
           sentAt: new Date(n.sentAt),
         }));
 
@@ -58,9 +88,26 @@ export const createNotificationSlice: StateCreator<
           unreadNotifications: unreadCount,
         });
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error fetching notifications:", err);
-      set({ error: "Failed to load notifications" });
+
+      // Specific handling for 401/403 errors (auth issues)
+      if (
+        err.response &&
+        (err.response.status === 401 || err.response.status === 403)
+      ) {
+        console.warn("Authentication issue when fetching notifications");
+        // Just set empty notifications instead of showing error
+        set({ notifications: [], unreadNotifications: 0 });
+        return;
+      }
+
+      set({
+        error: `Failed to load notifications: ${
+          err.message || "Unknown error"
+        }`,
+        notifications: [], // Still set empty array to avoid showing stale data
+      });
       setTimeout(() => set({ error: null }), 5000);
     }
   },

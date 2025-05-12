@@ -4,6 +4,7 @@ import { useState } from "react";
 import useChatStore from "@/store/useChatStore";
 import Image from "next/image";
 import CreateGroupModal from "./CreateGroupModal";
+import JoinGroupRequestModal from "./JoinGroupRequestModal";
 
 interface GroupListProps {
   title?: string;
@@ -15,12 +16,14 @@ export default function GroupList({ title = "Groups" }: GroupListProps) {
     selectedGroup,
     setSelectedGroup,
     joinGroup,
+    requestToJoinGroup,
     leaveGroup,
     deleteGroup,
     currentUsername,
     groupsWithUnreadMessages,
   } = useChatStore();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [joinRequestGroup, setJoinRequestGroup] = useState<any>(null);
 
   // Group the groups into categories: My Groups and Available Groups
   const myGroups = groups.filter((g) => g.isMember);
@@ -33,7 +36,15 @@ export default function GroupList({ title = "Groups" }: GroupListProps) {
   ) => {
     try {
       if (action === "join") {
-        await joinGroup(groupId);
+        // Check if the group is private before joining
+        const group = groups.find((g) => g.id === groupId);
+        if (group && group.isPrivate) {
+          // For private groups, show the request modal instead of directly joining
+          setJoinRequestGroup(group);
+        } else {
+          // For public groups, join directly
+          await joinGroup(groupId);
+        }
       } else if (action === "leave") {
         await leaveGroup(groupId);
       } else if (action === "delete") {
@@ -43,6 +54,19 @@ export default function GroupList({ title = "Groups" }: GroupListProps) {
       }
     } catch (error) {
       console.error(`Error performing ${action} action:`, error);
+    }
+  };
+
+  // Handle join request submission from the modal
+  const handleJoinRequest = async () => {
+    if (joinRequestGroup) {
+      if (joinRequestGroup.isPrivate) {
+        // For private groups, send a join request instead of directly joining
+        await requestToJoinGroup(joinRequestGroup.id);
+      } else {
+        // For public groups, join directly
+        await joinGroup(joinRequestGroup.id);
+      }
     }
   };
 
@@ -198,7 +222,14 @@ export default function GroupList({ title = "Groups" }: GroupListProps) {
                         )}
                       </div>
                       <div>
-                        <span className="font-medium">{group.name}</span>
+                        <div className="flex items-center">
+                          <span className="font-medium">{group.name}</span>
+                          {group.isPrivate && (
+                            <span className="ml-2 text-xs bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-300 px-2 py-0.5 rounded-full">
+                              Private
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
                           {group.description || `${group.memberCount} members`}
                         </p>
@@ -209,7 +240,7 @@ export default function GroupList({ title = "Groups" }: GroupListProps) {
                       onClick={() => handleGroupAction(group.id, "join")}
                       className="text-primary-600 hover:text-primary-800 dark:text-primary-400 dark:hover:text-primary-300 font-medium text-sm"
                     >
-                      Join
+                      {group.isPrivate ? "Request to Join" : "Join"}
                     </button>
                   </div>
                 </li>
@@ -230,6 +261,16 @@ export default function GroupList({ title = "Groups" }: GroupListProps) {
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
       />
+
+      {/* Join Request Modal */}
+      {joinRequestGroup && (
+        <JoinGroupRequestModal
+          group={joinRequestGroup}
+          isOpen={!!joinRequestGroup}
+          onClose={() => setJoinRequestGroup(null)}
+          onJoinRequest={handleJoinRequest}
+        />
+      )}
     </div>
   );
 }

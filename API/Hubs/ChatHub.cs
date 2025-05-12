@@ -283,6 +283,58 @@ public class ChatHub : Hub
             return;
         }
 
+        // Check if the group is private
+        if (group.IsPrivate)
+        {
+            // Check if the user has been invited to this private group
+            var hasInvitation = false;
+            var invitations = await _db.Notifications
+                .Where(n => n.ReceiverId == userId && 
+                        n.Type == NotificationType.GroupInvite && 
+                        n.PayloadJson != null)
+                .ToListAsync();
+            
+            // Parse each notification payload to properly check for the group ID
+            foreach (var invitation in invitations)
+            {
+                try
+                {
+                    var data = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(invitation.PayloadJson);
+                    if (data != null && data.ContainsKey("groupId") && data["groupId"] == groupId)
+                    {
+                        hasInvitation = true;
+                        break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error parsing notification payload for group invitation");
+                }
+            }
+
+            if (!hasInvitation)
+            {
+                await Clients.Caller.SendAsync("Error", "This group is private. You need an invitation to join.");
+                return;
+            }
+
+            // If we reach here, the user has an invitation, so we can remove all invitations to this group
+            foreach (var invitation in invitations)
+            {
+                try
+                {
+                    var data = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(invitation.PayloadJson);
+                    if (data != null && data.ContainsKey("groupId") && data["groupId"] == groupId)
+                    {
+                        _db.Notifications.Remove(invitation);
+                    }
+                }
+                catch { /* Skip if can't parse */ }
+            }
+            
+            await _db.SaveChangesAsync();
+        }
+
         // Add to group
         var membership = new GroupMember
         {
@@ -460,10 +512,331 @@ public class ChatHub : Hub
                 Description = g.Description,
                 CreatorId = g.CreatorId,
                 MemberCount = g.Members.Count,
-                IsMember = g.Members.Any(m => m.UserId == userId)
+                IsMember = g.Members.Any(m => m.UserId == userId),
+                IsPrivate = g.IsPrivate, // Include the privacy flag in the group list
+                UserRole = g.Members.Where(m => m.UserId == userId).Select(m => m.Role).FirstOrDefault()
             })
             .ToListAsync();
             
         await Clients.All.SendAsync("UpdateGroupList", groups);
+    }
+
+    public async Task RemoveFromGroup(string groupId, string memberId)
+    {
+        if (!Guid.TryParse(groupId, out var groupIdGuid) || !Guid.TryParse(memberId, out var memberIdGuid))
+        {
+            await Clients.Caller.SendAsync("Error", "Invalid ID format");
+            return;
+        }
+
+        var requesterId = GetUserId();
+        var requesterUsername = GetUserName();
+
+        // Check if group exists
+        var group = await _db.Groups.FindAsync(groupIdGuid);
+        if (group == null)
+        {
+            await Clients.Caller.SendAsync("Error", "Group does not exist");
+            return;
+        }
+
+        // Check requester's role in the group
+        var requesterMembership = await _db.GroupMembers
+            .FirstOrDefaultAsync(gm => gm.GroupId == groupIdGuid && gm.UserId == requesterId);
+
+        if (requesterMembership == null || requesterMembership.Role < 1) // Not admin or owner
+        {
+            await Clients.Caller.SendAsync("Error", "You don't have permission to remove members");
+            return;
+        }
+
+        // Check if target user is a member of the group
+        var targetMembership = await _db.GroupMembers
+            .FirstOrDefaultAsync(gm => gm.GroupId == groupIdGuid && gm.UserId == memberIdGuid);
+
+        if (targetMembership == null)
+        {
+            await Clients.Caller.SendAsync("Error", "User is not a member of this group");
+            return;
+        }
+
+        // Can't remove a higher role member
+        if (targetMembership.Role > requesterMembership.Role)
+        {
+            await Clients.Caller.SendAsync("Error", "You cannot remove a member with a higher role");
+            return;
+        }
+
+        // Remove membership
+        _db.GroupMembers.Remove(targetMembership);
+        await _db.SaveChangesAsync();
+
+        // Get target user's connection ID
+        var targetConnectionId = _userConnectionMap.GetValueOrDefault(memberId);
+
+        // If user is online, remove from SignalR group
+        if (!string.IsNullOrEmpty(targetConnectionId))
+        {
+            await Groups.RemoveFromGroupAsync(targetConnectionId, groupId);
+        }
+
+        // Get target user's username for notification
+        var targetUser = await _db.Users.FindAsync(memberIdGuid);
+        var targetUsername = targetUser?.Username ?? "Unknown User";
+
+        // Notify the removed user
+        if (!string.IsNullOrEmpty(targetConnectionId))
+        {
+            await Clients.Client(targetConnectionId).SendAsync("RemovedFromGroup", groupId, group.Name);
+        }
+
+        // Send notification to removed user
+        await _notificationService.CreateAsync(
+            memberIdGuid,
+            NotificationType.GroupRemoval,
+            new
+            {
+                groupId = groupId,
+                groupName = group.Name,
+                removedBy = requesterUsername
+            });
+
+        // Notify remaining group members
+        await Clients.Group(groupId).SendAsync("GroupMemberRemoved", groupId, group.Name, memberId, targetUsername, requesterUsername);
+
+        // Update group list for all users (to reflect new member count)
+        await UpdateGroupList();
+
+        _logger.LogInformation("User {targetUsername} removed from group {groupId} by {requesterUsername}", targetUsername, groupId, requesterUsername);
+    }
+
+    // Update the InviteToGroup method to check for existing invitations correctly
+    public async Task InviteToGroup(string groupId, string userId)
+    {
+        if (!Guid.TryParse(groupId, out var groupIdGuid) || !Guid.TryParse(userId, out var userIdGuid))
+        {
+            await Clients.Caller.SendAsync("Error", "Invalid ID format");
+            return;
+        }
+
+        var inviterId = GetUserId();
+        var inviterUsername = GetUserName();
+
+        // Check if group exists
+        var group = await _db.Groups.FindAsync(groupIdGuid);
+        if (group == null)
+        {
+            await Clients.Caller.SendAsync("Error", "Group does not exist");
+            return;
+        }
+
+        // Check if inviter is a member of the group
+        var inviterMembership = await _db.GroupMembers
+            .FirstOrDefaultAsync(gm => gm.GroupId == groupIdGuid && gm.UserId == inviterId);
+
+        if (inviterMembership == null)
+        {
+            await Clients.Caller.SendAsync("Error", "You're not a member of this group");
+            return;
+        }
+
+        // Check if target user exists
+        var targetUser = await _db.Users.FindAsync(userIdGuid);
+        if (targetUser == null)
+        {
+            await Clients.Caller.SendAsync("Error", "User does not exist");
+            return;
+        }
+
+        // Check if user is already a member
+        var existingMembership = await _db.GroupMembers
+            .FirstOrDefaultAsync(gm => gm.GroupId == groupIdGuid && gm.UserId == userIdGuid);
+
+        if (existingMembership != null)
+        {
+            await Clients.Caller.SendAsync("Error", "User is already a member of this group");
+            return;
+        }
+
+        // Check if there's already a pending invitation
+        var existingInvitation = await _db.Notifications
+            .Where(n => n.Type == NotificationType.GroupInvite && n.ReceiverId == userIdGuid)
+            .Select(n => n.PayloadJson)
+            .FirstOrDefaultAsync(data => data != null && data.Contains(groupId));
+
+        if (existingInvitation != null)
+        {
+            await Clients.Caller.SendAsync("Error", "User already has a pending invitation to this group");
+            return;
+        }
+
+        // Create notification for the invitation
+        await _notificationService.CreateAsync(
+            userIdGuid,
+            NotificationType.GroupInvite,
+            new
+            {
+                groupId = groupId,
+                groupName = group.Name,
+                inviterId = inviterId.ToString(),
+                inviterName = inviterUsername
+            });
+
+        // Notify the inviter that the invitation was sent
+        await Clients.Caller.SendAsync("GroupInviteSent", userId, targetUser.Username);
+
+        // If the user is online, notify them of the invitation
+        if (_userConnectionMap.TryGetValue(userId, out var targetConnectionId))
+        {
+            await Clients.Client(targetConnectionId).SendAsync("GroupInviteReceived", 
+                groupId, 
+                group.Name, 
+                inviterId.ToString(), 
+                inviterUsername);
+        }
+
+        _logger.LogInformation("User {inviterUsername} invited {targetUsername} to group {groupName}", 
+            inviterUsername, targetUser.Username, group.Name);
+    }
+
+    // Update the AcceptGroupInvitation method to work with the Notification model
+    public async Task AcceptGroupInvitation(string invitationId)
+    {
+        var userId = GetUserId();
+        var username = GetUserName();
+
+        // Find the invitation notification
+        if (!int.TryParse(invitationId, out var notificationId))
+        {
+            await Clients.Caller.SendAsync("Error", "Invalid invitation ID");
+            return;
+        }
+
+        var notification = await _db.Notifications
+            .FirstOrDefaultAsync(n => n.Id == notificationId && n.ReceiverId == userId && n.Type == NotificationType.GroupInvite);
+
+        if (notification == null)
+        {
+            await Clients.Caller.SendAsync("Error", "Invitation not found");
+            return;
+        }
+
+        // Parse the group data from the notification
+        try
+        {
+            var data = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(notification.PayloadJson ?? "{}");
+            
+            // Add null checks to avoid dereference errors
+            if (data == null || !data.TryGetValue("groupId", out var groupId) || !data.TryGetValue("groupName", out var groupName) || !data.TryGetValue("inviterName", out var inviterName))
+            {
+                await Clients.Caller.SendAsync("Error", "Invalid invitation data");
+                _db.Notifications.Remove(notification);
+                await _db.SaveChangesAsync();
+                return;
+            }
+
+            if (!Guid.TryParse(groupId, out var groupIdGuid))
+            {
+                await Clients.Caller.SendAsync("Error", "Invalid group ID");
+                return;
+            }
+
+            // Check if the group still exists
+            var group = await _db.Groups.FindAsync(groupIdGuid);
+            if (group == null)
+            {
+                await Clients.Caller.SendAsync("Error", "Group no longer exists");
+                _db.Notifications.Remove(notification);
+                await _db.SaveChangesAsync();
+                return;
+            }
+
+            // Check if user is already a member
+            var existingMembership = await _db.GroupMembers
+                .FirstOrDefaultAsync(gm => gm.GroupId == groupIdGuid && gm.UserId == userId);
+
+            if (existingMembership != null)
+            {
+                await Clients.Caller.SendAsync("Error", "You're already a member of this group");
+                _db.Notifications.Remove(notification);
+                await _db.SaveChangesAsync();
+                return;
+            }
+
+            // Add to group
+            var membership = new GroupMember
+            {
+                GroupId = groupIdGuid,
+                UserId = userId,
+                JoinedAt = DateTime.UtcNow,
+                Role = 0 // Regular member
+            };
+
+            _db.GroupMembers.Add(membership);
+            _db.Notifications.Remove(notification);
+            await _db.SaveChangesAsync();
+
+            // Add to SignalR group
+            await Groups.AddToGroupAsync(Context.ConnectionId, groupId);
+
+            // Notify the client they've joined
+            await Clients.Caller.SendAsync("JoinedGroup", new { GroupId = groupId, GroupName = group.Name });
+
+            // Notify other group members
+            await Clients.Group(groupId).SendAsync("GroupMemberJoined", groupId, group.Name, userId.ToString(), username);
+
+            // Update group list for all users (to reflect new member count)
+            await UpdateGroupList();
+
+            _logger.LogInformation("User {username} accepted invitation and joined group {groupId}", username, groupId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error accepting group invitation");
+            await Clients.Caller.SendAsync("Error", "Error accepting the invitation");
+        }
+    }
+
+    public async Task UpdateGroupPrivacy(string groupId, bool isPrivate)
+    {
+        if (!Guid.TryParse(groupId, out var groupIdGuid))
+        {
+            await Clients.Caller.SendAsync("Error", "Invalid group ID");
+            return;
+        }
+
+        var userId = GetUserId();
+        var username = GetUserName();
+
+        // Check if the group exists
+        var group = await _db.Groups.FindAsync(groupIdGuid);
+        if (group == null)
+        {
+            await Clients.Caller.SendAsync("Error", "Group not found");
+            return;
+        }
+
+        // Check if user is admin or owner of the group
+        var membership = await _db.GroupMembers
+            .FirstOrDefaultAsync(gm => gm.GroupId == groupIdGuid && gm.UserId == userId);
+
+        if (membership == null || membership.Role < 1) // Not an admin or owner
+        {
+            await Clients.Caller.SendAsync("Error", "You don't have permission to change group settings");
+            return;
+        }
+
+        // Update the privacy setting
+        group.IsPrivate = isPrivate;
+        await _db.SaveChangesAsync();
+
+        // Notify group members
+        await Clients.Group(groupId).SendAsync("GroupPrivacyUpdated", groupId, isPrivate);
+
+        // Update group list
+        await UpdateGroupList();
+
+        _logger.LogInformation("Group {groupId} privacy updated to {privacy} by {username}", 
+            groupId, isPrivate ? "private" : "public", username);
     }
 }

@@ -3705,11 +3705,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\Bozhidar\\Projects\\ChatApp\\ChatApp.csproj",
+      "projectUniqueName": "c:\\Users\\Bozhidar\\Projects\\ChatApp\\ChatApp.csproj",
       "projectName": "ChatApp",
-      "projectPath": "C:\\Users\\Bozhidar\\Projects\\ChatApp\\ChatApp.csproj",
+      "projectPath": "c:\\Users\\Bozhidar\\Projects\\ChatApp\\ChatApp.csproj",
       "packagesPath": "C:\\Users\\Bozhidar\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\Bozhidar\\Projects\\ChatApp\\obj\\",
+      "outputPath": "c:\\Users\\Bozhidar\\Projects\\ChatApp\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\Bozhidar\\AppData\\Roaming\\NuGet\\NuGet.Config",

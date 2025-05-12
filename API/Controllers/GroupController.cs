@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using ChatApp.API.Models;
 using ChatApp.Infrastructure.Data;
+using ChatApp.Infrastructure.Notification;
+using ChatApp.Shared.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -14,11 +16,13 @@ public class GroupController : ControllerBase
 {
     private readonly ApplicationDbContext _db;
     private readonly ILogger<GroupController> _logger;
+    private readonly INotificationService _notificationService;
 
-    public GroupController(ApplicationDbContext db, ILogger<GroupController> logger)
+    public GroupController(ApplicationDbContext db, ILogger<GroupController> logger, INotificationService notificationService)
     {
         _db = db;
         _logger = logger;
+        _notificationService = notificationService;
     }
 
     private Guid GetUserId() => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
@@ -44,6 +48,7 @@ public class GroupController : ControllerBase
                 IsMember = g.Members.Any(m => m.UserId == userId),
                 // Fix: Correctly handle the role query by using SingleOrDefault instead of Where + Select + FirstOrDefault
                 UserRole = g.Members.Where(m => m.UserId == userId).Select(m => (int?)m.Role).SingleOrDefault() ?? -1,
+                IsPrivate = g.IsPrivate, // Include the IsPrivate flag
                 CreatedAt = g.CreatedAt
             })
             .OrderByDescending(g => g.IsMember)
@@ -79,6 +84,7 @@ public class GroupController : ControllerBase
                 IsMember = g.Members.Any(m => m.UserId == userId),
                 // Fix: Use the same approach as in GetGroups
                 UserRole = g.Members.Where(m => m.UserId == userId).Select(m => (int?)m.Role).SingleOrDefault() ?? -1,
+                IsPrivate = g.IsPrivate, // Include the IsPrivate flag
                 CreatedAt = g.CreatedAt
             })
             .FirstOrDefaultAsync();
@@ -351,6 +357,68 @@ public class GroupController : ControllerBase
             UserId = targetMembership.UserId.ToString(),
             Role = (int)targetMembership.Role
         });
+    }
+
+    // POST: api/Group/{id}/request
+    [HttpPost("{id}/request")]
+    public async Task<IActionResult> RequestToJoinGroup(string id)
+    {
+        if (!Guid.TryParse(id, out var groupId))
+        {
+            return BadRequest("Invalid group ID format");
+        }
+        
+        var userId = GetUserId();
+        var username = GetUsername();
+        
+        // Check if group exists
+        var group = await _db.Groups.FindAsync(groupId);
+        if (group == null)
+        {
+            return NotFound("Group not found");
+        }
+        
+        // Verify the group is private
+        if (!group.IsPrivate)
+        {
+            return BadRequest("This group is not private. Use the Join method directly.");
+        }
+        
+        // Check if already a member
+        var existingMembership = await _db.GroupMembers
+            .FirstOrDefaultAsync(gm => gm.GroupId == groupId && gm.UserId == userId);
+            
+        if (existingMembership != null)
+        {
+            return BadRequest("Already a member of this group");
+        }
+        
+        // Check if there's already a pending request
+        var existingRequest = await _db.Notifications
+            .AnyAsync(n => n.ReceiverId == group.CreatorId && n.SenderId == userId && 
+                    n.Type == NotificationType.GroupJoinRequest &&
+                    n.PayloadJson.Contains(groupId.ToString()));
+                    
+        if (existingRequest)
+        {
+            return BadRequest("You have already sent a request to join this group");
+        }
+        
+        // Create a notification for the group owner
+        await _notificationService.CreateAsync(
+            group.CreatorId, // Send to group owner
+            NotificationType.GroupJoinRequest,
+            new {
+                groupId = groupId.ToString(),
+                groupName = group.Name,
+                requesterId = userId.ToString(),
+                requesterName = username
+            }
+        );
+        
+        _logger.LogInformation("User {username} requested to join group {groupId}", username, groupId);
+        
+        return Ok(new { message = "Join request sent successfully" });
     }
 }
 

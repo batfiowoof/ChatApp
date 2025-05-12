@@ -27,6 +27,7 @@ export interface GroupInfo {
   memberCount: number;
   isMember: boolean;
   userRole?: number; // 0: Member, 1: Admin, 2: Owner
+  isPrivate?: boolean; // Indicates if the group is private (requires invitation)
 }
 
 export interface GroupMember {

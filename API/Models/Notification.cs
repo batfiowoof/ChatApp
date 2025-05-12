@@ -7,7 +7,8 @@ public class Notification
     public int Id { get; set; }
     public Guid ReceiverId { get; set; }
     public NotificationType Type { get; set; }
-    public string PayloadJson { get; set; } = null;
+    public string? PayloadJson { get; set; } = null;
     public bool IsRead { get; set; }
     public DateTime SentAt { get; set; } = DateTime.UtcNow;
+    public Guid? SenderId { get; set; } // Adding missing SenderId property
 }

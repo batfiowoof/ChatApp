@@ -21,6 +21,7 @@ export interface GroupSlice {
   fetchGroups: () => Promise<void>;
   createGroup: (name: string, description: string) => Promise<string>;
   joinGroup: (groupId: string) => Promise<void>;
+  requestToJoinGroup: (groupId: string) => Promise<void>;
   leaveGroup: (groupId: string) => Promise<void>;
   deleteGroup: (groupId: string) => Promise<void>;
   setSelectedGroup: (groupId: string | null) => void;
@@ -69,6 +70,7 @@ export const createGroupSlice: StateCreator<ChatState, [], [], GroupSlice> = (
           memberCount: g.memberCount,
           isMember: g.isMember,
           userRole: g.userRole,
+          isPrivate: g.isPrivate, // Add the isPrivate property
         }));
 
         set({ groups });
@@ -152,6 +154,37 @@ export const createGroupSlice: StateCreator<ChatState, [], [], GroupSlice> = (
     } catch (err) {
       console.error("Error joining group:", err);
       set({ error: "Failed to join group. Please try again." });
+      setTimeout(() => set({ error: null }), 5000);
+      throw err;
+    }
+  },
+
+  // Request to join a group
+  requestToJoinGroup: async (groupId: string) => {
+    try {
+      const token = Cookies.get("token") || localStorage.getItem("token");
+      if (!token) {
+        throw new Error("No authentication token available");
+      }
+
+      const response = await axios.post(
+        `${API_BASE_URL}/Group/${groupId}/request`,
+        {},
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (response.status === 200 || response.status === 201) {
+        console.log("Request to join group sent successfully");
+      } else {
+        throw new Error("Failed to send request to join group");
+      }
+    } catch (err) {
+      console.error("Error requesting to join group:", err);
+      set({ error: "Failed to request to join group. Please try again." });
       setTimeout(() => set({ error: null }), 5000);
       throw err;
     }
@@ -407,6 +440,7 @@ export function setupGroupHandlers(
       isMember: g.IsMember || g.isMember,
       userRole:
         (g.UserRole ?? g.userRole) || (g.IsMember || g.isMember ? 0 : -1),
+      isPrivate: g.IsPrivate ?? g.isPrivate, // Add isPrivate property
     }));
 
     set({ groups: formattedGroups });

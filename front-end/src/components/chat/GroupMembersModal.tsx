@@ -23,11 +23,19 @@ export default function GroupMembersModal({
   isOpen,
   onClose,
 }: GroupMembersModalProps) {
-  const { users, fetchGroupMembers } = useChatStore();
+  const { users, fetchGroupMembers, groups } = useChatStore();
   const [members, setMembers] = useState<Member[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [inviteStatus, setInviteStatus] = useState<Record<string, string>>({});
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [isSubmittingPrivacy, setIsSubmittingPrivacy] = useState(false);
+
+  // Get current group and user role
+  const currentGroup = groups.find((g) => g.id === groupId);
+  const currentUserRole = currentGroup?.userRole || -1;
+  const isAdmin = currentUserRole >= 1; // Admin or Owner
+  const isOwner = currentUserRole === 2;
 
   // Get non-members (users who are not in the group)
   const nonMembers = users.filter(
@@ -37,8 +45,14 @@ export default function GroupMembersModal({
   useEffect(() => {
     if (isOpen && groupId) {
       loadMembers();
+
+      // If we have the group info, set the initial private state
+      const group = groups.find((g) => g.id === groupId);
+      if (group) {
+        setIsPrivate(group.isPrivate || false);
+      }
     }
-  }, [isOpen, groupId]);
+  }, [isOpen, groupId, groups]);
 
   const loadMembers = async () => {
     try {
@@ -59,9 +73,11 @@ export default function GroupMembersModal({
     try {
       setInviteStatus((prev) => ({ ...prev, [userId]: "sending" }));
 
-      // This is a placeholder - replace with your actual invitation API call
-      // For example: await inviteToGroup(groupId, userId);
-      await new Promise((resolve) => setTimeout(resolve, 500)); // Simulate API delay
+      // Make actual API call to invite user to group
+      const connection = useChatStore.getState().getConnection();
+      if (connection) {
+        await connection.invoke("InviteToGroup", groupId, userId);
+      }
 
       setInviteStatus((prev) => ({ ...prev, [userId]: "sent" }));
 
@@ -88,10 +104,57 @@ export default function GroupMembersModal({
     }
   };
 
+  const handleRemoveMember = async (memberId: string) => {
+    // Don't allow removing yourself if you're the owner
+    if (memberId === useChatStore.getState().currentUserId && isOwner) {
+      setError(
+        "As the owner, you cannot remove yourself. Transfer ownership first."
+      );
+      setTimeout(() => setError(""), 3000);
+      return;
+    }
+
+    try {
+      setError("");
+
+      // Make actual API call to remove member
+      const connection = useChatStore.getState().getConnection();
+      if (connection) {
+        await connection.invoke("RemoveFromGroup", groupId, memberId);
+
+        // Update the local member list
+        setMembers(members.filter((member) => member.id !== memberId));
+      }
+    } catch (err) {
+      console.error(`Error removing member ${memberId} from group:`, err);
+      setError("Failed to remove member. Try again later.");
+    }
+  };
+
+  const toggleGroupPrivacy = async () => {
+    if (!isAdmin) return;
+
+    try {
+      setIsSubmittingPrivacy(true);
+
+      // Make actual API call to update group privacy
+      const connection = useChatStore.getState().getConnection();
+      if (connection) {
+        await connection.invoke("UpdateGroupPrivacy", groupId, !isPrivate);
+        setIsPrivate(!isPrivate);
+      }
+    } catch (err) {
+      console.error(`Error updating group privacy:`, err);
+      setError("Failed to update group privacy settings.");
+    } finally {
+      setIsSubmittingPrivacy(false);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/50 bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full overflow-hidden">
         <div className="bg-primary-600 py-4 px-6 flex justify-between items-center">
           <h2 className="text-xl font-semibold text-white">Group Members</h2>
@@ -121,6 +184,37 @@ export default function GroupMembersModal({
           {error && (
             <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
               {error}
+            </div>
+          )}
+
+          {/* Group Privacy Setting */}
+          {isAdmin && (
+            <div className="mb-6 p-3 bg-gray-50 dark:bg-gray-700 rounded-md">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="font-medium">Group Privacy</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {isPrivate
+                      ? "Private: Users can only join by invitation"
+                      : "Public: Any user can join the group"}
+                  </p>
+                </div>
+                <button
+                  onClick={toggleGroupPrivacy}
+                  disabled={isSubmittingPrivacy}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                    isPrivate
+                      ? "bg-primary-600"
+                      : "bg-gray-300 dark:bg-gray-600"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                      isPrivate ? "translate-x-5" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
           )}
 
@@ -165,6 +259,33 @@ export default function GroupMembersModal({
                         </p>
                       </div>
                     </div>
+
+                    {/* Remove member button - Only visible to admins and owners */}
+                    {isAdmin &&
+                      (member.role < currentUserRole ||
+                        member.id ===
+                          useChatStore.getState().currentUserId) && (
+                        <button
+                          onClick={() => handleRemoveMember(member.id)}
+                          className="text-red-500 hover:text-red-700 p-1"
+                          title="Remove from group"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            className="h-5 w-5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M13 7a4 4 0 11-8 0 4 4 0 018 0zM9 14a6 6 0 00-6 6v1h12v-1a6 6 0 00-6-6zM21 12h-6"
+                            />
+                          </svg>
+                        </button>
+                      )}
                   </li>
                 ))}
               </ul>

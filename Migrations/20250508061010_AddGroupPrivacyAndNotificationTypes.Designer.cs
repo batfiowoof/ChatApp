@@ -3,6 +3,7 @@ using System;
 using ChatApp.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace ChatApp.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250508061010_AddGroupPrivacyAndNotificationTypes")]
+    partial class AddGroupPrivacyAndNotificationTypes
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -130,12 +133,10 @@ namespace ChatApp.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<string>("PayloadJson")
+                        .IsRequired()
                         .HasColumnType("text");
 
                     b.Property<Guid>("ReceiverId")
-                        .HasColumnType("uuid");
-
-                    b.Property<Guid?>("SenderId")
                         .HasColumnType("uuid");
 
                     b.Property<DateTime>("SentAt")
